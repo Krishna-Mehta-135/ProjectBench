@@ -30,13 +30,13 @@ pub struct K6Duration {
 
 #[derive(Debug, Deserialize)]
 pub struct K6DurationValues {
-    #[serde(rename = "p(\"50\")")]
+    #[serde(rename = "p(50)")]
     pub p50: Option<f64>,
-    #[serde(rename = "p(\"90\")")]
+    #[serde(rename = "p(90)")]
     pub p90: Option<f64>,
-    #[serde(rename = "p(\"95\")")]
+    #[serde(rename = "p(95)")]
     pub p95: Option<f64>,
-    #[serde(rename = "p(\"99\")")]
+    #[serde(rename = "p(99)")]
     pub p99: Option<f64>,
 }
 
@@ -108,7 +108,7 @@ mod tests {
 
     fn summary(error_rate: f64) -> String {
         format!(
-            r#"{{"metrics":{{"http_reqs":{{"value":100}},"http_req_failed":{{"value":{error_rate}}},"http_req_duration":{{"values":{{"p(\"50\")":10,"p(\"90\")":20,"p(\"95\")":30,"p(\"99\")":40}}}}}}}}"#
+            r#"{{"metrics":{{"http_reqs":{{"value":100}},"http_req_failed":{{"value":{error_rate}}},"http_req_duration":{{"values":{{"p(50)":10,"p(90)":20,"p(95)":30,"p(99)":40}}}}}}}}"#
         )
     }
     fn scenario() -> ScenarioSnapshot {

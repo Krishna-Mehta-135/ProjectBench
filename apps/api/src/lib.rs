@@ -134,7 +134,14 @@ pub enum PolicyError {
 impl RunPolicy {
     pub fn validate(&self, request: &PreflightRequest) -> Result<ValidatedTarget, PolicyError> {
         let parsed = Url::parse(&request.target_origin).map_err(|_| PolicyError::InvalidOrigin)?;
-        if parsed.scheme() != "https" || parsed.host_str().is_none() || parsed.path() != "/" {
+        if parsed.scheme() != "https"
+            || parsed.host_str().is_none()
+            || parsed.path() != "/"
+            || parsed.username() != ""
+            || parsed.password().is_some()
+            || parsed.query().is_some()
+            || parsed.fragment().is_some()
+        {
             return Err(PolicyError::InvalidOrigin);
         }
         let normalized = parsed.origin().ascii_serialization();
