@@ -7,7 +7,13 @@ pub mod report;
 pub mod runner;
 pub mod storage;
 
-use axum::{extract::State, http::StatusCode, response::IntoResponse, routing::get, Json, Router};
+use axum::{
+    extract::{Path, State},
+    http::StatusCode,
+    response::IntoResponse,
+    routing::get,
+    Json, Router,
+};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{net::SocketAddr, sync::Arc};
@@ -26,6 +32,8 @@ pub fn router(state: AppState) -> Router {
         .route("/health", get(health))
         .route("/api/v1/projects", get(list_projects))
         .route("/api/v1/runs", get(list_runs))
+        .route("/api/v1/runs/:run_id", get(get_run))
+        .route("/api/v1/runs/:run_id/report", get(get_report))
         .route("/api/v1/runs/preflight", axum::routing::post(preflight))
         .with_state(state)
 }
@@ -50,6 +58,16 @@ pub struct RunSummary {
     pub report_available: bool,
 }
 
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct RunDetail {
+    pub id: Uuid,
+    pub status: String,
+    pub target_origin: String,
+    pub workload: serde_json::Value,
+    pub scenario_snapshot: serde_json::Value,
+    pub report: Option<serde_json::Value>,
+}
+
 async fn list_projects(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<ProjectSummary>>, ApiError> {
@@ -64,6 +82,30 @@ async fn list_runs(State(state): State<AppState>) -> Result<Json<Vec<RunSummary>
         Some(repository) => Ok(Json(repository.list_runs().await?)),
         None => Ok(Json(Vec::new())),
     }
+}
+
+async fn get_run(
+    State(state): State<AppState>,
+    Path(run_id): Path<Uuid>,
+) -> Result<Json<RunDetail>, ApiError> {
+    let repository = state.repository.ok_or(ApiError::NotFound)?;
+    repository
+        .get_run(run_id)
+        .await?
+        .map(Json)
+        .ok_or(ApiError::NotFound)
+}
+
+async fn get_report(
+    State(state): State<AppState>,
+    Path(run_id): Path<Uuid>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let repository = state.repository.ok_or(ApiError::NotFound)?;
+    repository
+        .get_report(run_id)
+        .await?
+        .map(Json)
+        .ok_or(ApiError::NotFound)
 }
 
 async fn preflight(
@@ -251,15 +293,18 @@ pub enum ApiError {
     Policy(#[from] PolicyError),
     #[error(transparent)]
     Storage(#[from] storage::StorageError),
+    #[error("resource not found")]
+    NotFound,
 }
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> axum::response::Response {
-        (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": self.to_string()})),
-        )
-            .into_response()
+        let status = if matches!(&self, Self::NotFound) {
+            StatusCode::NOT_FOUND
+        } else {
+            StatusCode::BAD_REQUEST
+        };
+        (status, Json(serde_json::json!({"error": self.to_string()}))).into_response()
     }
 }
 
