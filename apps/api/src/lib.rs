@@ -2,6 +2,8 @@
 
 pub mod artifacts;
 pub mod lifecycle;
+pub mod orchestration;
+pub mod report;
 pub mod runner;
 
 use axum::{extract::State, http::StatusCode, response::IntoResponse, routing::get, Json, Router};
