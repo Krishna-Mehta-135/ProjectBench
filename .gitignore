@@ -1,23 +1,12 @@
-# Local environment
 .env
 .env.*
 !.env.example
-
-# Rust
 target/
-Cargo.lock
-
-# Frontend
 node_modules/
 dist/
-
-# Generated performance evidence
 artifacts/*
 !artifacts/.gitkeep
-*.jsonl
-*.har
-
-# Editors and OS files
 .DS_Store
 .idea/
 .vscode/
+
