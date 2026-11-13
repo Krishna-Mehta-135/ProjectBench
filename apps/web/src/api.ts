@@ -73,5 +73,9 @@ export const api = {
     if (!response.ok) throw new Error(`Metrics API returned ${response.status}`);
     return response.json() as Promise<CreatedRun>;
   },
+  cancelRun: async (id: string) => {
+    const response = await fetch(`${apiOrigin}/api/v1/runs/${id}/cancel`, { method: "POST" });
+    if (!response.ok) throw new Error(`Metrics API returned ${response.status}`);
+  },
 };
 
