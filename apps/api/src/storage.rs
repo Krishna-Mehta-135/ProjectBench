@@ -30,14 +30,14 @@ impl PgRepository {
     }
 
     pub async fn list_runs(&self) -> Result<Vec<RunSummary>, StorageError> {
-        Ok(sqlx::query_as::<_, RunSummary>("SELECT id, status, TRUE AS synthetic_traffic, (report IS NOT NULL) AS report_available FROM runs ORDER BY created_at DESC").fetch_all(&self.pool).await?)
+        Ok(sqlx::query_as::<_, RunSummary>("SELECT id, status, TRUE AS synthetic_traffic, (report IS NOT NULL) AS report_available, created_at, started_at, finished_at, failure_reason FROM runs ORDER BY created_at DESC").fetch_all(&self.pool).await?)
     }
 
     pub async fn get_run(
         &self,
         run_id: uuid::Uuid,
     ) -> Result<Option<crate::RunDetail>, StorageError> {
-        Ok(sqlx::query_as::<_, crate::RunDetail>("SELECT id, status, target_origin, workload, scenario_snapshot, report FROM runs WHERE id = $1").bind(run_id).fetch_optional(&self.pool).await?)
+        Ok(sqlx::query_as::<_, crate::RunDetail>("SELECT id, status, target_origin, workload, scenario_snapshot, report, created_at, started_at, finished_at, failure_reason FROM runs WHERE id = $1").bind(run_id).fetch_optional(&self.pool).await?)
     }
 
     pub async fn get_report(

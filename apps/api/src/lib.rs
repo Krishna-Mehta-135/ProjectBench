@@ -67,6 +67,10 @@ pub struct RunSummary {
     pub status: String,
     pub synthetic_traffic: bool,
     pub report_available: bool,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub started_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub finished_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub failure_reason: Option<String>,
 }
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
@@ -77,6 +81,10 @@ pub struct RunDetail {
     pub workload: serde_json::Value,
     pub scenario_snapshot: serde_json::Value,
     pub report: Option<serde_json::Value>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub started_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub finished_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub failure_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
