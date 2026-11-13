@@ -32,8 +32,8 @@ pub fn router(state: AppState) -> Router {
         .route("/health", get(health))
         .route("/api/v1/projects", get(list_projects))
         .route("/api/v1/runs", get(list_runs))
-        .route("/api/v1/runs/:run_id", get(get_run))
-        .route("/api/v1/runs/:run_id/report", get(get_report))
+        .route("/api/v1/runs/{run_id}", get(get_run))
+        .route("/api/v1/runs/{run_id}/report", get(get_report))
         .route("/api/v1/runs/preflight", axum::routing::post(preflight))
         .with_state(state)
 }
