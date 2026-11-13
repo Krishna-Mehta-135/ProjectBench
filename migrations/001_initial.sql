@@ -1,0 +1,6 @@
+CREATE TABLE projects (id UUID PRIMARY KEY, name TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL);
+CREATE TABLE environments (id UUID PRIMARY KEY, project_id UUID NOT NULL REFERENCES projects(id), name TEXT NOT NULL, base_url TEXT NOT NULL, allowed_origins JSONB NOT NULL, enabled BOOLEAN NOT NULL DEFAULT TRUE, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL);
+CREATE TABLE scenarios (id UUID PRIMARY KEY, project_id UUID NOT NULL REFERENCES projects(id), name TEXT NOT NULL, version TEXT NOT NULL, script_path TEXT NOT NULL, config_snapshot JSONB NOT NULL, config_sha256 TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL);
+CREATE TABLE runs (id UUID PRIMARY KEY, project_id UUID NOT NULL REFERENCES projects(id), environment_id UUID NOT NULL REFERENCES environments(id), scenario_id UUID NOT NULL REFERENCES scenarios(id), status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'completed', 'failed', 'canceled', 'aborted')), target_origin TEXT NOT NULL, workload JSONB NOT NULL, scenario_snapshot JSONB NOT NULL, scenario_sha256 TEXT NOT NULL, started_at TIMESTAMPTZ, finished_at TIMESTAMPTZ, report JSONB, created_at TIMESTAMPTZ NOT NULL);
+CREATE INDEX runs_scenario_created_at_idx ON runs (scenario_id, created_at DESC);
+
