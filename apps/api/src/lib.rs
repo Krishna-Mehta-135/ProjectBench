@@ -34,6 +34,10 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/runs", get(list_runs))
         .route("/api/v1/runs", axum::routing::post(create_run))
         .route("/api/v1/runs/{run_id}", get(get_run))
+        .route(
+            "/api/v1/runs/{run_id}/execute",
+            axum::routing::post(execute_run),
+        )
         .route("/api/v1/runs/{run_id}/report", get(get_report))
         .route("/api/v1/runs/preflight", axum::routing::post(preflight))
         .with_state(state)
@@ -155,6 +159,86 @@ async fn get_report(
         .await?
         .map(Json)
         .ok_or(ApiError::NotFound)
+}
+
+async fn execute_run(
+    State(state): State<AppState>,
+    Path(run_id): Path<Uuid>,
+) -> Result<Json<RunReport>, ApiError> {
+    let repository = state.repository.ok_or(ApiError::Unavailable)?;
+    let detail = repository
+        .get_run(run_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+    if detail.status != "queued" {
+        return Err(ApiError::Conflict);
+    }
+    let scenario: ScenarioSnapshot = serde_json::from_value(detail.scenario_snapshot.clone())
+        .map_err(|error| ApiError::Execution(error.to_string()))?;
+    let workload: Workload = serde_json::from_value(detail.workload.clone())
+        .map_err(|error| ApiError::Execution(error.to_string()))?;
+    repository.update_status(run_id, "running").await?;
+    let root = std::env::var("ARTIFACT_ROOT").unwrap_or_else(|_| "artifacts".into());
+    let run_dir = run_id.to_string();
+    let relative_dir = std::path::Path::new(&run_dir);
+    let absolute_dir = std::path::Path::new(&root).join(relative_dir);
+    std::fs::create_dir_all(&absolute_dir)
+        .map_err(|error| ApiError::Execution(error.to_string()))?;
+    let raw_relative = relative_dir.join("raw.jsonl");
+    let summary_relative = relative_dir.join("summary.json");
+    let request = runner::K6Request {
+        script: scenario.script_path.clone().into(),
+        output_json: std::path::Path::new(&root).join(&raw_relative),
+        summary_json: std::path::Path::new(&root).join(&summary_relative),
+        vus: workload.vus,
+        duration_seconds: workload.duration_seconds,
+    };
+    let timeout_seconds = workload.duration_seconds + workload.think_time_seconds + 15;
+    if let Err(error) = runner::execute(
+        &request,
+        std::time::Duration::from_secs(timeout_seconds as u64),
+    )
+    .await
+    {
+        repository.save_report(run_id, "failed", None).await?;
+        return Err(ApiError::Execution(error.to_string()));
+    }
+    let summary = std::fs::read_to_string(&request.summary_json)
+        .map_err(|error| ApiError::Execution(error.to_string()))?;
+    let raw = std::fs::read(&request.output_json)
+        .map_err(|error| ApiError::Execution(error.to_string()))?;
+    let store = artifacts::LocalArtifactStore::new(&root);
+    let raw_hash = store.put(&raw_relative, &raw)?;
+    let summary_hash = store.put(&summary_relative, summary.as_bytes())?;
+    let preflight = PreflightRequest {
+        target_origin: detail.target_origin,
+        scenario,
+        workload,
+    };
+    let mut report = report::build_report(
+        &summary,
+        RunStatus::Completed,
+        preflight.target_origin.clone(),
+        preflight.scenario.clone(),
+        preflight.workload.clone(),
+        ArtifactRef {
+            kind: "k6-summary".into(),
+            path: summary_relative.display().to_string(),
+            sha256: summary_hash,
+        },
+    )
+    .map_err(|error| ApiError::Execution(error.to_string()))?;
+    report.artifacts.push(ArtifactRef {
+        kind: "k6-raw-jsonl".into(),
+        path: raw_relative.display().to_string(),
+        sha256: raw_hash,
+    });
+    let report_json =
+        serde_json::to_value(&report).map_err(|error| ApiError::Execution(error.to_string()))?;
+    repository
+        .save_report(run_id, "completed", Some(&report_json))
+        .await?;
+    Ok(Json(report))
 }
 
 async fn preflight(
@@ -348,6 +432,10 @@ pub enum ApiError {
     ConfirmationRequired,
     #[error("run storage is unavailable")]
     Unavailable,
+    #[error("run is not in a runnable state")]
+    Conflict,
+    #[error("run execution failed: {0}")]
+    Execution(String),
 }
 
 impl IntoResponse for ApiError {
@@ -358,6 +446,10 @@ impl IntoResponse for ApiError {
             StatusCode::SERVICE_UNAVAILABLE
         } else if matches!(&self, Self::ConfirmationRequired) {
             StatusCode::PRECONDITION_REQUIRED
+        } else if matches!(&self, Self::Conflict) {
+            StatusCode::CONFLICT
+        } else if matches!(&self, Self::Execution(_)) {
+            StatusCode::BAD_GATEWAY
         } else {
             StatusCode::BAD_REQUEST
         };
