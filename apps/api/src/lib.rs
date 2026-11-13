@@ -53,7 +53,7 @@ pub struct ProjectSummary {
 #[derive(Debug, Serialize, sqlx::FromRow)]
 pub struct RunSummary {
     pub id: Uuid,
-    pub status: RunStatus,
+    pub status: String,
     pub synthetic_traffic: bool,
     pub report_available: bool,
 }
