@@ -20,12 +20,38 @@ pub struct AppState {
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health))
+        .route("/api/v1/projects", get(list_projects))
+        .route("/api/v1/runs", get(list_runs))
         .route("/api/v1/runs/preflight", axum::routing::post(preflight))
         .with_state(state)
 }
 
 async fn health() -> impl IntoResponse {
     Json(serde_json::json!({"status": "ok"}))
+}
+
+#[derive(Debug, Serialize)]
+pub struct ProjectSummary {
+    pub id: Uuid,
+    pub name: String,
+    pub environment: String,
+    pub latest_run_id: Option<Uuid>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RunSummary {
+    pub id: Uuid,
+    pub status: RunStatus,
+    pub synthetic_traffic: bool,
+    pub report_available: bool,
+}
+
+async fn list_projects() -> impl IntoResponse {
+    Json(Vec::<ProjectSummary>::new())
+}
+
+async fn list_runs() -> impl IntoResponse {
+    Json(Vec::<RunSummary>::new())
 }
 
 async fn preflight(
@@ -304,5 +330,25 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn project_list_is_explicitly_empty_until_persistence_is_configured() {
+        let response = router(AppState {
+            policy: Arc::new(policy()),
+        })
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/projects")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert_eq!(body.as_ref(), b"[]");
     }
 }
