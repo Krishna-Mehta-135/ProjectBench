@@ -1,5 +1,8 @@
 #![forbid(unsafe_code)]
 
+pub mod artifacts;
+pub mod lifecycle;
+
 use axum::{extract::State, http::StatusCode, response::IntoResponse, routing::get, Json, Router};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
