@@ -1,1 +1,17 @@
-import { describe, expect, it } from "vitest";\nimport { canCancelRun, formatRunStatus } from "./runPresentation";\n\ndescribe("run presentation rules", () => {\n  it("allows cancellation only for active states", () => {\n    expect(canCancelRun("queued")).toBe(true);\n    expect(canCancelRun("running")).toBe(true);\n    expect(canCancelRun("completed")).toBe(false);\n    expect(canCancelRun("failed")).toBe(false);\n    expect(canCancelRun("canceled")).toBe(false);\n  });\n\n  it("keeps status labels readable", () => {\n    expect(formatRunStatus("canceled")).toBe("canceled");\n    expect(formatRunStatus("in_progress")).toBe("in progress");\n  });\n});\n
+import { describe, expect, it } from "vitest";
+import { canCancelRun, formatRunStatus } from "./runPresentation";
+
+describe("run presentation rules", () => {
+  it("allows cancellation only for active states", () => {
+    expect(canCancelRun("queued")).toBe(true);
+    expect(canCancelRun("running")).toBe(true);
+    expect(canCancelRun("completed")).toBe(false);
+    expect(canCancelRun("failed")).toBe(false);
+    expect(canCancelRun("canceled")).toBe(false);
+  });
+
+  it("keeps status labels readable", () => {
+    expect(formatRunStatus("canceled")).toBe("canceled");
+    expect(formatRunStatus("in_progress")).toBe("in progress");
+  });
+});

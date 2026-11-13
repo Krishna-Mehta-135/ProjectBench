@@ -28,7 +28,3 @@ Execution acquisition is atomic. Only a queued run can be claimed; concurrent re
 
 Run list and detail responses include `created_at`, `started_at`, `finished_at`, and `failure_reason`. Timestamps are PostgreSQL UTC timestamps serialized as RFC 3339 values. Failure reasons are bounded operational messages; command lines, environment variables, and credentials are never returned.
 
-
-## Dashboard behavior
-
-The dashboard exposes cancellation only for queued and running runs, asks for explicit operator confirmation, then refreshes the run list and selected detail. Terminal failed, canceled, and aborted runs remain visible with their lifecycle metadata and do not receive cancellation controls.
