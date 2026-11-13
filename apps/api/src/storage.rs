@@ -72,4 +72,32 @@ impl PgRepository {
             .await?;
         Ok(id)
     }
+
+    pub async fn update_status(
+        &self,
+        run_id: uuid::Uuid,
+        status: &str,
+    ) -> Result<(), StorageError> {
+        sqlx::query("UPDATE runs SET status = $1, started_at = CASE WHEN $1 = 'running' THEN NOW() ELSE started_at END, finished_at = CASE WHEN $1 IN ('completed', 'failed', 'canceled', 'aborted') THEN NOW() ELSE finished_at END WHERE id = $2")
+            .bind(status)
+            .bind(run_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn save_report(
+        &self,
+        run_id: uuid::Uuid,
+        status: &str,
+        report: Option<&serde_json::Value>,
+    ) -> Result<(), StorageError> {
+        sqlx::query("UPDATE runs SET status = $1, report = $2, finished_at = NOW() WHERE id = $3")
+            .bind(status)
+            .bind(report)
+            .bind(run_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
 }
