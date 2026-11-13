@@ -1,0 +1,1 @@
+export function canCancelRun(status: string): boolean {\n  return status === "queued" || status === "running";\n}\n\nexport function formatRunStatus(status: string): string {\n  return status.replaceAll("_", " ");\n}\n

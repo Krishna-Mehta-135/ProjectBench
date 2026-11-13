@@ -15,4 +15,11 @@ describe("run report API", () => {
   it("encodes artifact kinds in download URLs", () => {
     expect(api.artifactUrl("run-1", "k6/raw")).toBe("/api/v1/runs/run-1/artifacts/k6%2Fraw");
   });
+
+  it("cancels a run through the explicit operator endpoint", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true }));
+
+    await expect(api.cancelRun("run-1")).resolves.toBeUndefined();
+    expect(fetch).toHaveBeenCalledWith("/api/v1/runs/run-1/cancel", { method: "POST" });
+  });
 });
