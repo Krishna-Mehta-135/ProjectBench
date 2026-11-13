@@ -16,3 +16,5 @@ The response contains the run ID and `queued` status. Execution is a separate or
 
 Automated tests use the fake k6 fixture and a local target. Azure execution requires a separately reviewed operator action.
 
+Execution acquisition is atomic. Only a queued run can be claimed; concurrent requests receive a conflict after the first claim. Runner failures are retained with a failure reason. A recovery sweep can mark stale running leases failed without replaying them.
+

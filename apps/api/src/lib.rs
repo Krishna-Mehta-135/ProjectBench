@@ -177,7 +177,9 @@ async fn execute_run(
         .map_err(|error| ApiError::Execution(error.to_string()))?;
     let workload: Workload = serde_json::from_value(detail.workload.clone())
         .map_err(|error| ApiError::Execution(error.to_string()))?;
-    repository.update_status(run_id, "running").await?;
+    if !repository.acquire_queued_run(run_id).await? {
+        return Err(ApiError::Conflict);
+    }
     let root = std::env::var("ARTIFACT_ROOT").unwrap_or_else(|_| "artifacts".into());
     let run_dir = run_id.to_string();
     let relative_dir = std::path::Path::new(&run_dir);
@@ -200,7 +202,7 @@ async fn execute_run(
     )
     .await
     {
-        repository.save_report(run_id, "failed", None).await?;
+        repository.fail_run(run_id, &error.to_string()).await?;
         return Err(ApiError::Execution(error.to_string()));
     }
     let summary = std::fs::read_to_string(&request.summary_json)
