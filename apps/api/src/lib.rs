@@ -32,6 +32,7 @@ pub fn router(state: AppState) -> Router {
         .route("/health", get(health))
         .route("/api/v1/projects", get(list_projects))
         .route("/api/v1/runs", get(list_runs))
+        .route("/api/v1/runs", axum::routing::post(create_run))
         .route("/api/v1/runs/{run_id}", get(get_run))
         .route("/api/v1/runs/{run_id}/report", get(get_report))
         .route("/api/v1/runs/preflight", axum::routing::post(preflight))
@@ -68,6 +69,25 @@ pub struct RunDetail {
     pub report: Option<serde_json::Value>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct CreateRunRequest {
+    pub project_id: Uuid,
+    pub environment_id: Uuid,
+    pub scenario_id: Uuid,
+    pub target_origin: String,
+    pub scenario: ScenarioSnapshot,
+    pub workload: Workload,
+    pub confirmed: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CreatedRun {
+    pub id: Uuid,
+    pub status: String,
+    pub scenario_hash: String,
+    pub synthetic_traffic: bool,
+}
+
 async fn list_projects(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<ProjectSummary>>, ApiError> {
@@ -82,6 +102,35 @@ async fn list_runs(State(state): State<AppState>) -> Result<Json<Vec<RunSummary>
         Some(repository) => Ok(Json(repository.list_runs().await?)),
         None => Ok(Json(Vec::new())),
     }
+}
+
+async fn create_run(
+    State(state): State<AppState>,
+    Json(request): Json<CreateRunRequest>,
+) -> Result<(StatusCode, Json<CreatedRun>), ApiError> {
+    let preflight = PreflightRequest {
+        target_origin: request.target_origin.clone(),
+        scenario: request.scenario.clone(),
+        workload: request.workload.clone(),
+    };
+    state.policy.validate(&preflight)?;
+    if !request.confirmed {
+        return Err(ApiError::ConfirmationRequired);
+    }
+    let repository = state.repository.ok_or(ApiError::Unavailable)?;
+    let scenario_hash = scenario_hash(&request.scenario);
+    let id = repository
+        .create_queued_run(&request, &scenario_hash)
+        .await?;
+    Ok((
+        StatusCode::CREATED,
+        Json(CreatedRun {
+            id,
+            status: "queued".into(),
+            scenario_hash,
+            synthetic_traffic: true,
+        }),
+    ))
 }
 
 async fn get_run(
@@ -295,12 +344,20 @@ pub enum ApiError {
     Storage(#[from] storage::StorageError),
     #[error("resource not found")]
     NotFound,
+    #[error("operator confirmation is required")]
+    ConfirmationRequired,
+    #[error("run storage is unavailable")]
+    Unavailable,
 }
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> axum::response::Response {
         let status = if matches!(&self, Self::NotFound) {
             StatusCode::NOT_FOUND
+        } else if matches!(&self, Self::Unavailable) {
+            StatusCode::SERVICE_UNAVAILABLE
+        } else if matches!(&self, Self::ConfirmationRequired) {
+            StatusCode::PRECONDITION_REQUIRED
         } else {
             StatusCode::BAD_REQUEST
         };
@@ -425,5 +482,33 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(body.as_ref(), b"[]");
+    }
+
+    #[tokio::test]
+    async fn create_run_requires_confirmation_before_storage() {
+        let body = serde_json::json!({
+            "project_id": Uuid::new_v4(),
+            "environment_id": Uuid::new_v4(),
+            "scenario_id": Uuid::new_v4(),
+            "target_origin": "https://api.canvassync.tech/",
+            "scenario": {"name":"read","version":"1","script_path":"scenario.js","routes":["GET /health"]},
+            "workload": {"vus":1,"duration_seconds":1,"think_time_seconds":0},
+            "confirmed": false
+        });
+        let response = router(AppState {
+            policy: Arc::new(policy()),
+            repository: None,
+        })
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/runs")
+                .header("content-type", "application/json")
+                .body(Body::from(body.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(response.status(), StatusCode::PRECONDITION_REQUIRED);
     }
 }

@@ -52,4 +52,24 @@ impl PgRepository {
         .await?
         .flatten())
     }
+
+    pub async fn create_queued_run(
+        &self,
+        request: &crate::CreateRunRequest,
+        scenario_hash: &str,
+    ) -> Result<uuid::Uuid, StorageError> {
+        let id = uuid::Uuid::new_v4();
+        sqlx::query("INSERT INTO runs (id, project_id, environment_id, scenario_id, status, target_origin, workload, scenario_snapshot, scenario_sha256, created_at) VALUES ($1, $2, $3, $4, 'queued', $5, $6, $7, $8, NOW())")
+            .bind(id)
+            .bind(request.project_id)
+            .bind(request.environment_id)
+            .bind(request.scenario_id)
+            .bind(&request.target_origin)
+            .bind(serde_json::to_value(&request.workload).expect("workload serializes"))
+            .bind(serde_json::to_value(&request.scenario).expect("scenario serializes"))
+            .bind(scenario_hash)
+            .execute(&self.pool)
+            .await?;
+        Ok(id)
+    }
 }
