@@ -11,3 +11,8 @@ The report tests use `tests/fixtures/k6-summary.json`. The fake executable under
 
 Before relying on a local result, confirm that dependencies resolved successfully. A formatting pass is not a substitute for compiled tests.
 
+## PostgreSQL-backed verification
+
+The Rust quality job starts a disposable PostgreSQL 16 service and sets `DATABASE_URL` for SQLx integration tests. Storage tests apply the repository migrations, seed isolated project/environment/scenario/run rows, and verify that concurrent acquisition has one winner and stale running leases are retained as failed.
+
+These tests use database fixtures only. They do not start k6 against Canvassync, Azure, or any external target.
