@@ -18,3 +18,7 @@ Automated tests use the fake k6 fixture and a local target. Azure execution requ
 
 Execution acquisition is atomic. Only a queued run can be claimed; concurrent requests receive a conflict after the first claim. Runner failures are retained with a failure reason. A recovery sweep can mark stale running leases failed without replaying them.
 
+## Artifacts
+
+`GET /api/v1/runs/{run_id}/artifacts` lists the report's retained artifact references. `GET /api/v1/runs/{run_id}/artifacts/{kind}` streams a referenced summary or raw JSONL artifact. The API never accepts a caller-supplied filesystem path; it resolves the kind from the persisted report and applies the local artifact store's path-safety checks.
+
