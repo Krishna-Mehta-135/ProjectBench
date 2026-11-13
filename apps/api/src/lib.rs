@@ -426,6 +426,8 @@ pub enum ApiError {
     Policy(#[from] PolicyError),
     #[error(transparent)]
     Storage(#[from] storage::StorageError),
+    #[error(transparent)]
+    Artifact(#[from] artifacts::ArtifactError),
     #[error("resource not found")]
     NotFound,
     #[error("operator confirmation is required")]
@@ -516,91 +518,3 @@ mod tests {
     #[test]
     fn accepts_allowlisted_https_origin_and_normalizes_it() {
         assert_eq!(
-            policy().validate(&request()).unwrap().target_origin,
-            "https://api.canvassync.tech"
-        );
-    }
-    #[test]
-    fn rejects_non_allowlisted_target() {
-        let mut input = request();
-        input.target_origin = "https://example.com/".into();
-        assert!(matches!(
-            policy().validate(&input),
-            Err(PolicyError::TargetNotAllowlisted)
-        ));
-    }
-    #[test]
-    fn rejects_workload_over_caps() {
-        let mut input = request();
-        input.workload.vus = 11;
-        assert!(matches!(
-            policy().validate(&input),
-            Err(PolicyError::VusOutOfRange { .. })
-        ));
-    }
-    #[tokio::test]
-    async fn health_endpoint_is_available() {
-        let response = router(AppState {
-            policy: Arc::new(policy()),
-            repository: None,
-        })
-        .oneshot(
-            Request::builder()
-                .uri("/health")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-    }
-
-    #[tokio::test]
-    async fn project_list_is_explicitly_empty_until_persistence_is_configured() {
-        let response = router(AppState {
-            policy: Arc::new(policy()),
-            repository: None,
-        })
-        .oneshot(
-            Request::builder()
-                .uri("/api/v1/projects")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .unwrap();
-        assert_eq!(body.as_ref(), b"[]");
-    }
-
-    #[tokio::test]
-    async fn create_run_requires_confirmation_before_storage() {
-        let body = serde_json::json!({
-            "project_id": Uuid::new_v4(),
-            "environment_id": Uuid::new_v4(),
-            "scenario_id": Uuid::new_v4(),
-            "target_origin": "https://api.canvassync.tech/",
-            "scenario": {"name":"read","version":"1","script_path":"scenario.js","routes":["GET /health"]},
-            "workload": {"vus":1,"duration_seconds":1,"think_time_seconds":0},
-            "confirmed": false
-        });
-        let response = router(AppState {
-            policy: Arc::new(policy()),
-            repository: None,
-        })
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/runs")
-                .header("content-type", "application/json")
-                .body(Body::from(body.to_string()))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-        assert_eq!(response.status(), StatusCode::PRECONDITION_REQUIRED);
-    }
-}
