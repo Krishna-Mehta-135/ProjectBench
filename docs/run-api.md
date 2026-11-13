@@ -22,3 +22,7 @@ Execution acquisition is atomic. Only a queued run can be claimed; concurrent re
 
 `GET /api/v1/runs/{run_id}/artifacts` lists the report's retained artifact references. `GET /api/v1/runs/{run_id}/artifacts/{kind}` streams a referenced summary or raw JSONL artifact. The API never accepts a caller-supplied filesystem path; it resolves the kind from the persisted report and applies the local artifact store's path-safety checks.
 
+## Lifecycle metadata
+
+Run list and detail responses include `created_at`, `started_at`, `finished_at`, and `failure_reason`. Timestamps are PostgreSQL UTC timestamps serialized as RFC 3339 values. Failure reasons are bounded operational messages; command lines, environment variables, and credentials are never returned.
+

@@ -10,6 +10,10 @@ export type RunSummary = {
   status: string;
   synthetic_traffic: boolean;
   report_available: boolean;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  failure_reason: string | null;
 };
 
 export type RunReport = {
@@ -33,6 +37,10 @@ export type RunDetail = {
   workload: RunReport["workload"];
   scenario_snapshot: RunReport["scenario"];
   report: RunReport | null;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  failure_reason: string | null;
 };
 
 export type CreateRunRequest = {

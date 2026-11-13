@@ -42,11 +42,11 @@ function ReportDetail({ run }: { run: RunDetail }) {
   const report = run.report;
   return <>
     <div className="report-title"><div><h2>{report?.scenario.name ?? "Run report"}</h2><p>{run.id} · {run.target_origin}</p></div><span className={`status status-${run.status}`}>{run.status}</span></div>
-    {!report && <p>This run has no persisted report yet. It may still be queued or running, or it may have failed before report creation.</p>}
+    {!report && <><p>This run has no persisted report yet. It may still be queued or running, or it may have failed before report creation.</p>{run.failure_reason && <p className="failure-reason"><strong>Failure reason:</strong> {run.failure_reason}</p>}</>}
     {report && <>
       <div className="metric-grid">{[["Requests", report.metrics.request_count.toLocaleString()], ["Throughput", `${report.metrics.throughput_per_second.toFixed(2)}/s`], ["Error rate", `${(report.metrics.error_rate * 100).toFixed(2)}%`], ["p95", report.metrics.p95_ms === null ? "—" : `${report.metrics.p95_ms.toFixed(1)} ms`]].map(([label, value]) => <div className="metric" key={label}><small>{label}</small><strong>{value}</strong></div>)}</div>
       <div className="thresholds"><h3>Thresholds</h3>{report.thresholds.map((threshold) => <p key={threshold.name}><span className={threshold.passed ? "pass" : "fail"}>{threshold.passed ? "PASS" : "FAIL"}</span> {threshold.name}</p>)}</div>
-      <div className="report-meta"><p><strong>Synthetic k6 traffic.</strong> This is controlled virtual-user evidence, not real-user or browser-rendering data.</p><p>Scenario {report.scenario.version} · {report.workload.vus} VUs · {report.workload.duration_seconds}s</p></div>
+      <div className="report-meta"><p><strong>Synthetic k6 traffic.</strong> This is controlled virtual-user evidence, not real-user or browser-rendering data.</p><p>Scenario {report.scenario.version} · {report.workload.vus} VUs · {report.workload.duration_seconds}s</p>{run.failure_reason && <p className="failure-reason"><strong>Failure reason:</strong> {run.failure_reason}</p>}<p>Created {new Date(run.created_at).toLocaleString()} · {run.finished_at ? `Finished ${new Date(run.finished_at).toLocaleString()}` : "Still active"}</p></div>
       <div className="artifact-links"><h3>Artifacts</h3>{report.artifacts.map((artifact) => <a key={artifact.kind} href={api.artifactUrl(run.id, artifact.kind)} target="_blank" rel="noreferrer">Download {artifact.kind} →</a>)}</div>
     </>}
   </>;
