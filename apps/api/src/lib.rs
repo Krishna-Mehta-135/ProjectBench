@@ -331,4 +331,24 @@ mod tests {
         .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
     }
+
+    #[tokio::test]
+    async fn project_list_is_explicitly_empty_until_persistence_is_configured() {
+        let response = router(AppState {
+            policy: Arc::new(policy()),
+        })
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/projects")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert_eq!(body.as_ref(), b"[]");
+    }
 }
