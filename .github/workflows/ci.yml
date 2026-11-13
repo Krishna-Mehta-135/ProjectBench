@@ -11,6 +11,22 @@ permissions:
 jobs:
   rust:
     runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: postgres://metrics:metrics-ci@localhost:5432/metrics
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: metrics
+          POSTGRES_USER: metrics
+          POSTGRES_PASSWORD: metrics-ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U metrics -d metrics"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     defaults:
       run:
         working-directory: .
