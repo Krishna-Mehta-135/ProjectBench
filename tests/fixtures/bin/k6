@@ -1,6 +1,14 @@
 #!/bin/sh
 set -eu
 
+if [ "${K6_FIXTURE_MODE:-success}" = "fail" ]; then
+  exit 7
+fi
+
+if [ "${K6_FIXTURE_MODE:-success}" = "sleep" ]; then
+  sleep 30
+fi
+
 output=""
 while [ "$#" -gt 0 ]; do
   if [ "$1" = "--out" ]; then
