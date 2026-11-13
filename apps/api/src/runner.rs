@@ -1,6 +1,6 @@
 use std::{path::PathBuf, time::Duration};
 use thiserror::Error;
-use tokio::{process::Command, time::timeout};
+use tokio::{process::Command, sync::watch, time::sleep};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct K6Request {
@@ -25,6 +25,8 @@ pub enum RunnerError {
     NonZero(Option<i32>),
     #[error("k6 process could not start: {0}")]
     Start(#[from] std::io::Error),
+    #[error("k6 process was canceled")]
+    Canceled,
 }
 
 pub fn command_for(request: &K6Request) -> K6Command {
@@ -45,14 +47,31 @@ pub fn command_for(request: &K6Request) -> K6Command {
     }
 }
 
-pub async fn execute(request: &K6Request, hard_timeout: Duration) -> Result<(), RunnerError> {
+pub async fn execute(
+    request: &K6Request,
+    hard_timeout: Duration,
+    mut cancellation: watch::Receiver<bool>,
+) -> Result<(), RunnerError> {
     let command = command_for(request);
-    let status = timeout(
-        hard_timeout,
-        Command::new(command.executable).args(command.args).status(),
-    )
-    .await
-    .map_err(|_| RunnerError::Timeout)??;
+    let mut child = Command::new(command.executable)
+        .args(command.args)
+        .spawn()
+        .map_err(RunnerError::Start)?;
+    let status = tokio::select! {
+        result = child.wait() => result.map_err(RunnerError::Start)?,
+        _ = sleep(hard_timeout) => {
+            let _ = child.kill().await;
+            return Err(RunnerError::Timeout);
+        }
+        changed = cancellation.changed() => {
+            if changed.is_ok() && *cancellation.borrow() {
+                let _ = child.kill().await;
+                let _ = child.wait().await;
+                return Err(RunnerError::Canceled);
+            }
+            return Err(RunnerError::Canceled);
+        }
+    };
     if status.success() {
         Ok(())
     } else {

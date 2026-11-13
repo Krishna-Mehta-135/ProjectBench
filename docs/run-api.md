@@ -14,6 +14,8 @@ The response contains the run ID and `queued` status. Execution is a separate or
 
 `POST /api/v1/runs/{run_id}/execute` accepts a queued run, transitions it to `running`, invokes the registered k6 script, writes raw and summary artifacts beneath `ARTIFACT_ROOT`, builds the versioned report, and stores the terminal result. A nonzero exit, timeout, missing summary, or invalid report leaves the run failed.
 
+`POST /api/v1/runs/{run_id}/cancel` cancels a queued run immediately or signals its owned k6 process to terminate when it is running. Canceled runs remain persisted with `status: canceled`, `finished_at`, and `failure_reason: canceled by operator`; any partial artifacts remain available for operator inspection. Cancellation is distinct from runner failure and stale-lease recovery.
+
 Automated tests use the fake k6 fixture and a local target. Azure execution requires a separately reviewed operator action.
 
 Execution acquisition is atomic. Only a queued run can be claimed; concurrent requests receive a conflict after the first claim. Runner failures are retained with a failure reason. A recovery sweep can mark stale running leases failed without replaying them.

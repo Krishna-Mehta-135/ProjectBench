@@ -24,3 +24,5 @@
 
 Run execution uses a PostgreSQL acquisition lease. The worker claims a queued run with one conditional update, increments its attempt count, and records a start time. A recovery sweep marks running runs whose lease has expired as failed with a retained reason; replay is an explicit operator decision.
 
+Cancellation is coordinated through an in-process run registry keyed by run ID. The execution handler owns the k6 child process and watches a cancellation channel; the cancel endpoint signals that channel, the runner terminates the child, and the repository records a terminal `canceled` state. Queued cancellation uses the same conditional persistence transition without starting a process. The registry is intentionally an orchestration concern, while the database remains the durable source of run state.
+
