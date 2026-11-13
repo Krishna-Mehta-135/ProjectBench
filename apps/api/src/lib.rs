@@ -92,7 +92,7 @@ pub struct RunSummary {
     pub failure_reason: Option<String>,
 }
 
-#[derive(Debug, Serialize, sqlx::FromRow)]
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
 pub struct RunDetail {
     pub id: Uuid,
     pub status: String,
