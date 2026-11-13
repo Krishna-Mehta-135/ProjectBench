@@ -1,0 +1,20 @@
+#!/bin/sh
+set -eu
+
+output=""
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "--out" ]; then
+    output="${2#json=}"
+    shift 2
+  else
+    shift
+  fi
+done
+
+if [ -n "$output" ]; then
+  mkdir -p "$(dirname "$output")"
+  printf '%s\n' '{"type":"Metric","metric":"http_reqs","data":{"value":100}}' > "$output"
+fi
+
+exit 0
+
