@@ -16,6 +16,7 @@
 4. Failed, canceled, or partial runs are retained and cannot be presented as passing runs.
 5. Secrets never enter scenario files, report JSON, logs, or Git.
 6. Run acquisition is an atomic queued-to-running transition; a run cannot be acquired twice.
+7. Lifecycle timestamps are server-owned UTC values; failure reasons contain no command or secret material.
 
 ## Extension points
 
