@@ -53,7 +53,9 @@ pub async fn execute(
     mut cancellation: watch::Receiver<bool>,
 ) -> Result<(), RunnerError> {
     let command = command_for(request);
-    let mut child = Command::new(command.executable)
+    let executable =
+        std::env::var_os("METRICS_K6_EXECUTABLE").unwrap_or_else(|| command.executable.into());
+    let mut child = Command::new(executable)
         .args(command.args)
         .spawn()
         .map_err(RunnerError::Start)?;
