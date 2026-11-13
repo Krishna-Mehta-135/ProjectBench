@@ -1,0 +1,18 @@
+project: canvassync
+environment: azure-staging
+target_origin: https://api.canvassync.tech
+scenario: canvassync-room-read
+version: "1"
+workload:
+  vus: 1
+  duration_seconds: 60
+  think_time_seconds: 2
+  hard_runtime_seconds: 75
+secrets:
+  email: TEST_ACCOUNT_EMAIL
+  password: TEST_ACCOUNT_PASSWORD
+  seeded_room_id: SEEDED_ROOM_ID
+notes:
+  - "Example only; credentials and room IDs are injected at runtime."
+  - "Do not run against Azure until target and workload are explicitly reviewed."
+
