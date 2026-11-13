@@ -6,6 +6,7 @@ use tokio::{process::Command, time::timeout};
 pub struct K6Request {
     pub script: PathBuf,
     pub output_json: PathBuf,
+    pub summary_json: PathBuf,
     pub vus: u32,
     pub duration_seconds: u32,
 }
@@ -37,6 +38,8 @@ pub fn command_for(request: &K6Request) -> K6Command {
             format!("{}s", request.duration_seconds),
             "--out".into(),
             format!("json={}", request.output_json.display()),
+            "--summary-export".into(),
+            request.summary_json.display().to_string(),
             request.script.display().to_string(),
         ],
     }
@@ -66,6 +69,7 @@ mod tests {
         let request = K6Request {
             script: "scenario.js".into(),
             output_json: "run.jsonl".into(),
+            summary_json: "summary.json".into(),
             vus: 1,
             duration_seconds: 60,
         };
@@ -81,6 +85,8 @@ mod tests {
                 "60s",
                 "--out",
                 "json=run.jsonl",
+                "--summary-export",
+                "summary.json",
                 "scenario.js"
             ]
         );
@@ -91,6 +97,7 @@ mod tests {
         let request = K6Request {
             script: "$(touch compromised)".into(),
             output_json: "run.jsonl".into(),
+            summary_json: "summary.json".into(),
             vus: 1,
             duration_seconds: 1,
         };

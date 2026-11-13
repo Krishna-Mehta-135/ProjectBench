@@ -6,6 +6,9 @@ while [ "$#" -gt 0 ]; do
   if [ "$1" = "--out" ]; then
     output="${2#json=}"
     shift 2
+  elif [ "$1" = "--summary-export" ]; then
+    summary="$2"
+    shift 2
   else
     shift
   fi
@@ -14,6 +17,11 @@ done
 if [ -n "$output" ]; then
   mkdir -p "$(dirname "$output")"
   printf '%s\n' '{"type":"Metric","metric":"http_reqs","data":{"value":100}}' > "$output"
+fi
+
+if [ -n "${summary:-}" ]; then
+  mkdir -p "$(dirname "$summary")"
+  printf '%s\n' '{"metrics":{"http_reqs":{"value":100},"http_req_failed":{"value":0.01},"http_req_duration":{"values":{"p(50)":10,"p(90)":20,"p(95)":30,"p(99)":40}}}}' > "$summary"
 fi
 
 exit 0
