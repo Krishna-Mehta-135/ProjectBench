@@ -86,13 +86,38 @@ impl PgRepository {
         Ok(())
     }
 
+    pub async fn acquire_queued_run(&self, run_id: uuid::Uuid) -> Result<bool, StorageError> {
+        let result = sqlx::query("UPDATE runs SET status = 'running', started_at = NOW(), execution_attempts = execution_attempts + 1, failure_reason = NULL WHERE id = $1 AND status = 'queued'")
+            .bind(run_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(result.rows_affected() == 1)
+    }
+
+    pub async fn fail_run(&self, run_id: uuid::Uuid, reason: &str) -> Result<(), StorageError> {
+        sqlx::query("UPDATE runs SET status = 'failed', failure_reason = $1, finished_at = NOW() WHERE id = $2")
+            .bind(reason)
+            .bind(run_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn recover_stale_runs(&self, timeout_seconds: i64) -> Result<u64, StorageError> {
+        let result = sqlx::query("UPDATE runs SET status = 'failed', failure_reason = 'runner lease expired', finished_at = NOW() WHERE status = 'running' AND started_at < NOW() - make_interval(secs => $1)")
+            .bind(timeout_seconds as f64)
+            .execute(&self.pool)
+            .await?;
+        Ok(result.rows_affected())
+    }
+
     pub async fn save_report(
         &self,
         run_id: uuid::Uuid,
         status: &str,
         report: Option<&serde_json::Value>,
     ) -> Result<(), StorageError> {
-        sqlx::query("UPDATE runs SET status = $1, report = $2, finished_at = NOW() WHERE id = $3")
+        sqlx::query("UPDATE runs SET status = $1, report = $2, failure_reason = NULL, finished_at = NOW() WHERE id = $3")
             .bind(status)
             .bind(report)
             .bind(run_id)
