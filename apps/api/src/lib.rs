@@ -8,8 +8,9 @@ pub mod runner;
 pub mod storage;
 
 use axum::{
+    body::Body,
     extract::{Path, State},
-    http::StatusCode,
+    http::{header, HeaderValue, StatusCode},
     response::IntoResponse,
     routing::get,
     Json, Router,
@@ -39,6 +40,11 @@ pub fn router(state: AppState) -> Router {
             axum::routing::post(execute_run),
         )
         .route("/api/v1/runs/{run_id}/report", get(get_report))
+        .route("/api/v1/runs/{run_id}/artifacts", get(list_artifacts))
+        .route(
+            "/api/v1/runs/{run_id}/artifacts/{kind}",
+            get(download_artifact),
+        )
         .route("/api/v1/runs/preflight", axum::routing::post(preflight))
         .with_state(state)
 }
@@ -159,6 +165,59 @@ async fn get_report(
         .await?
         .map(Json)
         .ok_or(ApiError::NotFound)
+}
+
+async fn list_artifacts(
+    State(state): State<AppState>,
+    Path(run_id): Path<Uuid>,
+) -> Result<Json<Vec<ArtifactRef>>, ApiError> {
+    let repository = state.repository.ok_or(ApiError::NotFound)?;
+    let report = repository
+        .get_report(run_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+    let report: RunReport =
+        serde_json::from_value(report).map_err(|error| ApiError::Execution(error.to_string()))?;
+    Ok(Json(report.artifacts))
+}
+
+async fn download_artifact(
+    State(state): State<AppState>,
+    Path((run_id, kind)): Path<(Uuid, String)>,
+) -> Result<axum::response::Response, ApiError> {
+    let repository = state.repository.ok_or(ApiError::NotFound)?;
+    let report = repository
+        .get_report(run_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+    let report: RunReport =
+        serde_json::from_value(report).map_err(|error| ApiError::Execution(error.to_string()))?;
+    let artifact = report
+        .artifacts
+        .iter()
+        .find(|artifact| artifact.kind == kind)
+        .ok_or(ApiError::NotFound)?;
+    let root = std::env::var("ARTIFACT_ROOT").unwrap_or_else(|_| "artifacts".into());
+    let content =
+        match artifacts::LocalArtifactStore::new(root).read(std::path::Path::new(&artifact.path)) {
+            Ok(content) => content,
+            Err(artifacts::ArtifactError::Io(error))
+                if error.kind() == std::io::ErrorKind::NotFound =>
+            {
+                return Err(ApiError::NotFound);
+            }
+            Err(error) => return Err(ApiError::Artifact(error)),
+        };
+    let content_type = if artifact.kind.ends_with("json") || artifact.kind == "k6-summary" {
+        "application/json"
+    } else {
+        "application/x-ndjson"
+    };
+    let mut response = Body::from(content).into_response();
+    response
+        .headers_mut()
+        .insert(header::CONTENT_TYPE, HeaderValue::from_static(content_type));
+    Ok(response)
 }
 
 async fn execute_run(
