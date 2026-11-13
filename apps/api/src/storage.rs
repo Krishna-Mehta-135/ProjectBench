@@ -107,6 +107,14 @@ impl PgRepository {
         Ok(())
     }
 
+    pub async fn cancel_run(&self, run_id: uuid::Uuid) -> Result<bool, StorageError> {
+        let result = sqlx::query("UPDATE runs SET status = 'canceled', failure_reason = 'canceled by operator', finished_at = NOW() WHERE id = $1 AND status IN ('queued', 'running')")
+            .bind(run_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(result.rows_affected() == 1)
+    }
+
     pub async fn recover_stale_runs(&self, timeout_seconds: i64) -> Result<u64, StorageError> {
         let result = sqlx::query("UPDATE runs SET status = 'failed', failure_reason = 'runner lease expired', finished_at = NOW() WHERE status = 'running' AND started_at < NOW() - make_interval(secs => $1)")
             .bind(timeout_seconds as f64)

@@ -17,7 +17,11 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::{net::SocketAddr, sync::Arc};
+use std::{
+    collections::HashMap,
+    net::SocketAddr,
+    sync::{Arc, Mutex},
+};
 use thiserror::Error;
 use url::Url;
 use uuid::Uuid;
@@ -26,6 +30,17 @@ use uuid::Uuid;
 pub struct AppState {
     pub policy: Arc<RunPolicy>,
     pub repository: Option<Arc<storage::PgRepository>>,
+    pub cancellations: Arc<Mutex<HashMap<Uuid, tokio::sync::watch::Sender<bool>>>>,
+}
+
+impl AppState {
+    pub fn new(policy: RunPolicy, repository: Option<Arc<storage::PgRepository>>) -> Self {
+        Self {
+            policy: Arc::new(policy),
+            repository,
+            cancellations: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
 }
 
 pub fn router(state: AppState) -> Router {
@@ -38,6 +53,10 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/api/v1/runs/{run_id}/execute",
             axum::routing::post(execute_run),
+        )
+        .route(
+            "/api/v1/runs/{run_id}/cancel",
+            axum::routing::post(cancel_run),
         )
         .route("/api/v1/runs/{run_id}/report", get(get_report))
         .route("/api/v1/runs/{run_id}/artifacts", get(list_artifacts))
@@ -263,15 +282,36 @@ async fn execute_run(
         duration_seconds: workload.duration_seconds,
     };
     let timeout_seconds = workload.duration_seconds + workload.think_time_seconds + 15;
+    let (cancel_sender, cancel_receiver) = tokio::sync::watch::channel(false);
+    state
+        .cancellations
+        .lock()
+        .expect("cancellation registry is not poisoned")
+        .insert(run_id, cancel_sender);
     if let Err(error) = runner::execute(
         &request,
         std::time::Duration::from_secs(timeout_seconds as u64),
+        cancel_receiver,
     )
     .await
     {
-        repository.fail_run(run_id, &error.to_string()).await?;
+        state
+            .cancellations
+            .lock()
+            .expect("cancellation registry is not poisoned")
+            .remove(&run_id);
+        if matches!(&error, runner::RunnerError::Canceled) {
+            repository.cancel_run(run_id).await?;
+        } else {
+            repository.fail_run(run_id, &error.to_string()).await?;
+        }
         return Err(ApiError::Execution(error.to_string()));
     }
+    state
+        .cancellations
+        .lock()
+        .expect("cancellation registry is not poisoned")
+        .remove(&run_id);
     let summary = std::fs::read_to_string(&request.summary_json)
         .map_err(|error| ApiError::Execution(error.to_string()))?;
     let raw = std::fs::read(&request.output_json)
@@ -308,6 +348,27 @@ async fn execute_run(
         .save_report(run_id, "completed", Some(&report_json))
         .await?;
     Ok(Json(report))
+}
+
+async fn cancel_run(
+    State(state): State<AppState>,
+    Path(run_id): Path<Uuid>,
+) -> Result<StatusCode, ApiError> {
+    let repository = state.repository.ok_or(ApiError::Unavailable)?;
+    let sender = state
+        .cancellations
+        .lock()
+        .expect("cancellation registry is not poisoned")
+        .get(&run_id)
+        .cloned();
+    if let Some(sender) = sender {
+        sender.send(true).map_err(|_| ApiError::Conflict)?;
+        return Ok(StatusCode::ACCEPTED);
+    }
+    if repository.cancel_run(run_id).await? {
+        return Ok(StatusCode::OK);
+    }
+    Err(ApiError::Conflict)
 }
 
 async fn preflight(
@@ -542,14 +603,7 @@ pub async fn serve(addr: SocketAddr) -> anyhow::Result<()> {
         )),
         Err(_) => None,
     };
-    axum::serve(
-        listener,
-        router(AppState {
-            policy: Arc::new(policy),
-            repository,
-        }),
-    )
-    .await?;
+    axum::serve(listener, router(AppState::new(policy, repository))).await?;
     Ok(())
 }
 
@@ -611,35 +665,29 @@ mod tests {
     }
     #[tokio::test]
     async fn health_endpoint_is_available() {
-        let response = router(AppState {
-            policy: Arc::new(policy()),
-            repository: None,
-        })
-        .oneshot(
-            Request::builder()
-                .uri("/health")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
+        let response = router(AppState::new(policy(), None))
+            .oneshot(
+                Request::builder()
+                    .uri("/health")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
     }
 
     #[tokio::test]
     async fn project_list_is_explicitly_empty_until_persistence_is_configured() {
-        let response = router(AppState {
-            policy: Arc::new(policy()),
-            repository: None,
-        })
-        .oneshot(
-            Request::builder()
-                .uri("/api/v1/projects")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
+        let response = router(AppState::new(policy(), None))
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/projects")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
@@ -658,20 +706,17 @@ mod tests {
             "workload": {"vus":1,"duration_seconds":1,"think_time_seconds":0},
             "confirmed": false
         });
-        let response = router(AppState {
-            policy: Arc::new(policy()),
-            repository: None,
-        })
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/runs")
-                .header("content-type", "application/json")
-                .body(Body::from(body.to_string()))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
+        let response = router(AppState::new(policy(), None))
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/runs")
+                    .header("content-type", "application/json")
+                    .body(Body::from(body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         assert_eq!(response.status(), StatusCode::PRECONDITION_REQUIRED);
     }
 }
