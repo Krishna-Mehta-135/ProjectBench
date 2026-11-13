@@ -5,6 +5,7 @@ pub mod lifecycle;
 pub mod orchestration;
 pub mod report;
 pub mod runner;
+pub mod storage;
 
 use axum::{extract::State, http::StatusCode, response::IntoResponse, routing::get, Json, Router};
 use serde::{Deserialize, Serialize};
@@ -17,6 +18,7 @@ use uuid::Uuid;
 #[derive(Clone)]
 pub struct AppState {
     pub policy: Arc<RunPolicy>,
+    pub repository: Option<Arc<storage::PgRepository>>,
 }
 
 pub fn router(state: AppState) -> Router {
@@ -32,7 +34,7 @@ async fn health() -> impl IntoResponse {
     Json(serde_json::json!({"status": "ok"}))
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, sqlx::FromRow)]
 pub struct ProjectSummary {
     pub id: Uuid,
     pub name: String,
@@ -40,7 +42,7 @@ pub struct ProjectSummary {
     pub latest_run_id: Option<Uuid>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, sqlx::FromRow)]
 pub struct RunSummary {
     pub id: Uuid,
     pub status: RunStatus,
@@ -48,12 +50,20 @@ pub struct RunSummary {
     pub report_available: bool,
 }
 
-async fn list_projects() -> impl IntoResponse {
-    Json(Vec::<ProjectSummary>::new())
+async fn list_projects(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<ProjectSummary>>, ApiError> {
+    match state.repository {
+        Some(repository) => Ok(Json(repository.list_projects().await?)),
+        None => Ok(Json(Vec::new())),
+    }
 }
 
-async fn list_runs() -> impl IntoResponse {
-    Json(Vec::<RunSummary>::new())
+async fn list_runs(State(state): State<AppState>) -> Result<Json<Vec<RunSummary>>, ApiError> {
+    match state.repository {
+        Some(repository) => Ok(Json(repository.list_runs().await?)),
+        None => Ok(Json(Vec::new())),
+    }
 }
 
 async fn preflight(
@@ -239,6 +249,8 @@ pub struct ArtifactRef {
 pub enum ApiError {
     #[error(transparent)]
     Policy(#[from] PolicyError),
+    #[error(transparent)]
+    Storage(#[from] storage::StorageError),
 }
 
 impl IntoResponse for ApiError {
@@ -259,10 +271,17 @@ pub async fn serve(addr: SocketAddr) -> anyhow::Result<()> {
         max_runtime_seconds: 360,
     };
     let listener = tokio::net::TcpListener::bind(addr).await?;
+    let repository = match std::env::var("DATABASE_URL") {
+        Ok(database_url) => Some(Arc::new(
+            storage::PgRepository::connect(&database_url).await?,
+        )),
+        Err(_) => None,
+    };
     axum::serve(
         listener,
         router(AppState {
             policy: Arc::new(policy),
+            repository,
         }),
     )
     .await?;
@@ -329,6 +348,7 @@ mod tests {
     async fn health_endpoint_is_available() {
         let response = router(AppState {
             policy: Arc::new(policy()),
+            repository: None,
         })
         .oneshot(
             Request::builder()
@@ -345,6 +365,7 @@ mod tests {
     async fn project_list_is_explicitly_empty_until_persistence_is_configured() {
         let response = router(AppState {
             policy: Arc::new(policy()),
+            repository: None,
         })
         .oneshot(
             Request::builder()
