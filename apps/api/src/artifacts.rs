@@ -13,6 +13,8 @@ pub enum ArtifactError {
     PathEscape,
     #[error("artifact I/O failed: {0}")]
     Io(#[from] io::Error),
+    #[error("artifact hash does not match persisted metadata")]
+    HashMismatch,
 }
 
 #[derive(Debug, Clone)]
@@ -36,6 +38,19 @@ impl LocalArtifactStore {
 
     pub fn read(&self, relative_path: &Path) -> Result<Vec<u8>, ArtifactError> {
         Ok(fs::read(self.safe_path(relative_path)?)?)
+    }
+
+    pub fn read_verified(
+        &self,
+        relative_path: &Path,
+        expected_sha256: &str,
+    ) -> Result<Vec<u8>, ArtifactError> {
+        let content = self.read(relative_path)?;
+        let actual = format!("sha256:{:x}", Sha256::digest(&content));
+        if actual != expected_sha256 {
+            return Err(ArtifactError::HashMismatch);
+        }
+        Ok(content)
     }
 
     fn safe_path(&self, relative_path: &Path) -> Result<PathBuf, ArtifactError> {
@@ -74,5 +89,18 @@ mod tests {
             store.put(Path::new("../secret"), b"x"),
             Err(ArtifactError::PathEscape)
         ));
+    }
+
+    #[test]
+    fn rejects_tampered_bytes() {
+        let root = std::env::temp_dir().join(format!("metrics-artifacts-{}", Uuid::new_v4()));
+        let store = LocalArtifactStore::new(&root);
+        let hash = store.put(Path::new("run/raw.json"), b"original").unwrap();
+        fs::write(root.join("run/raw.json"), b"tampered").unwrap();
+        assert!(matches!(
+            store.read_verified(Path::new("run/raw.json"), &hash),
+            Err(ArtifactError::HashMismatch)
+        ));
+        let _ = fs::remove_dir_all(root);
     }
 }
