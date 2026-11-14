@@ -8,6 +8,8 @@ pub enum StorageError {
     Connection(#[from] sqlx::Error),
     #[error("database migration failed: {0}")]
     Migration(#[from] sqlx::migrate::MigrateError),
+    #[error("run configuration is not approved: {0}")]
+    Configuration(String),
 }
 
 #[derive(Clone)]
@@ -60,6 +62,7 @@ impl PgRepository {
     pub async fn create_queued_run(
         &self,
         request: &crate::CreateRunRequest,
+        target_origin: &str,
         scenario_hash: &str,
     ) -> Result<uuid::Uuid, StorageError> {
         let id = uuid::Uuid::new_v4();
@@ -68,13 +71,58 @@ impl PgRepository {
             .bind(request.project_id)
             .bind(request.environment_id)
             .bind(request.scenario_id)
-            .bind(&request.target_origin)
+            .bind(target_origin)
             .bind(serde_json::to_value(&request.workload).expect("workload serializes"))
             .bind(serde_json::to_value(&request.scenario).expect("scenario serializes"))
             .bind(scenario_hash)
             .execute(&self.pool)
             .await?;
         Ok(id)
+    }
+
+    pub async fn validate_run_configuration(
+        &self,
+        request: &crate::CreateRunRequest,
+        target_origin: &str,
+    ) -> Result<(), StorageError> {
+        let row = sqlx::query_as::<_, (uuid::Uuid, bool, serde_json::Value, uuid::Uuid, String, String, String)>(
+            "SELECT e.project_id, e.enabled, e.allowed_origins, s.project_id, s.name, s.version, s.script_path
+             FROM environments e JOIN scenarios s ON s.id = $2
+             WHERE e.id = $1",
+        )
+        .bind(request.environment_id)
+        .bind(request.scenario_id)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or_else(|| StorageError::Configuration("environment or scenario does not exist".into()))?;
+
+        if row.0 != request.project_id || row.3 != request.project_id {
+            return Err(StorageError::Configuration(
+                "environment and scenario must belong to the project".into(),
+            ));
+        }
+        if !row.1 {
+            return Err(StorageError::Configuration(
+                "environment is disabled".into(),
+            ));
+        }
+
+        let origins: Vec<String> = serde_json::from_value(row.2).map_err(|error| {
+            StorageError::Configuration(format!("environment allowlist is invalid: {error}"))
+        })?;
+        if !origins.iter().any(|origin| origin == target_origin) {
+            return Err(StorageError::Configuration(
+                "target origin is not approved for the environment".into(),
+            ));
+        }
+
+        let scenario = &request.scenario;
+        if scenario.name != row.4 || scenario.version != row.5 || scenario.script_path != row.6 {
+            return Err(StorageError::Configuration(
+                "scenario snapshot does not match the persisted scenario version".into(),
+            ));
+        }
+        Ok(())
     }
 
     pub async fn update_status(
@@ -99,7 +147,7 @@ impl PgRepository {
     }
 
     pub async fn fail_run(&self, run_id: uuid::Uuid, reason: &str) -> Result<(), StorageError> {
-        sqlx::query("UPDATE runs SET status = 'failed', failure_reason = $1, finished_at = NOW() WHERE id = $2")
+        sqlx::query("UPDATE runs SET status = 'failed', failure_reason = $1, finished_at = NOW() WHERE id = $2 AND status = 'running'")
             .bind(reason)
             .bind(run_id)
             .execute(&self.pool)
@@ -129,7 +177,7 @@ impl PgRepository {
         status: &str,
         report: Option<&serde_json::Value>,
     ) -> Result<(), StorageError> {
-        sqlx::query("UPDATE runs SET status = $1, report = $2, failure_reason = NULL, finished_at = NOW() WHERE id = $3")
+        sqlx::query("UPDATE runs SET status = $1, report = $2, failure_reason = NULL, finished_at = NOW() WHERE id = $3 AND status = 'running'")
             .bind(status)
             .bind(report)
             .bind(run_id)
@@ -156,7 +204,7 @@ mod tests {
             .execute(pool)
             .await
             .unwrap();
-        sqlx::query("INSERT INTO environments (id, project_id, name, base_url, allowed_origins, created_at, updated_at) VALUES ($1, $2, 'local', 'https://example.test', '[]', $3, $3)")
+        sqlx::query("INSERT INTO environments (id, project_id, name, base_url, allowed_origins, created_at, updated_at) VALUES ($1, $2, 'local', 'https://example.test', '[\"https://example.test\"]', $3, $3)")
             .bind(environment_id)
             .bind(project_id)
             .bind(now)
@@ -215,5 +263,78 @@ mod tests {
                 .await
                 .unwrap();
         assert_eq!(row, ("failed".into(), "runner lease expired".into()));
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn run_configuration_is_bound_to_enabled_environment_and_scenario(pool: PgPool) {
+        let project_id = uuid::Uuid::new_v4();
+        let environment_id = uuid::Uuid::new_v4();
+        let scenario_id = uuid::Uuid::new_v4();
+        let now = Utc::now();
+        sqlx::query("INSERT INTO projects (id, name, created_at, updated_at) VALUES ($1, 'policy project', $2, $2)")
+            .bind(project_id)
+            .bind(now)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO environments (id, project_id, name, base_url, allowed_origins, created_at, updated_at) VALUES ($1, $2, 'local', 'https://example.test', '[\"https://example.test\"]', $3, $3)")
+            .bind(environment_id)
+            .bind(project_id)
+            .bind(now)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO scenarios (id, project_id, name, version, script_path, config_snapshot, config_sha256, created_at) VALUES ($1, $2, 'read', '1', 'scenario.js', '{}', 'sha256:test', $3)")
+            .bind(scenario_id)
+            .bind(project_id)
+            .bind(now)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let repository = PgRepository::from_pool(pool.clone());
+        let request = crate::CreateRunRequest {
+            project_id,
+            environment_id,
+            scenario_id,
+            target_origin: "https://example.test/".into(),
+            scenario: crate::ScenarioSnapshot {
+                name: "read".into(),
+                version: "1".into(),
+                script_path: "scenario.js".into(),
+                routes: vec!["GET /health".into()],
+            },
+            workload: crate::Workload {
+                vus: 1,
+                duration_seconds: 1,
+                think_time_seconds: 0,
+            },
+            confirmed: true,
+        };
+        repository
+            .validate_run_configuration(&request, "https://example.test")
+            .await
+            .unwrap();
+
+        let mut cross_project = request.clone();
+        cross_project.project_id = uuid::Uuid::new_v4();
+        assert!(matches!(
+            repository
+                .validate_run_configuration(&cross_project, "https://example.test")
+                .await,
+            Err(StorageError::Configuration(message)) if message.contains("belong")
+        ));
+
+        sqlx::query("UPDATE environments SET enabled = FALSE WHERE id = $1")
+            .bind(environment_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert!(matches!(
+            repository
+                .validate_run_configuration(&request, "https://example.test")
+                .await,
+            Err(StorageError::Configuration(message)) if message.contains("disabled")
+        ));
     }
 }
