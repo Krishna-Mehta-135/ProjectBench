@@ -24,9 +24,12 @@ Set `METRICS_OPERATOR_TOKEN` before binding the API beyond a trusted local-only 
 
 ```sh
 export METRICS_OPERATOR_TOKEN='use-a-secret-from-your-secret-manager'
+export METRICS_MAX_CONCURRENT_RUNS=1
 ```
 
 When set, every API route except `/health` requires `Authorization: Bearer <token>`. This protects configuration writes, run execution and cancellation, reports, and artifact downloads. If the variable is absent, the API remains in local-development mode and is not suitable for an exposed deployment. The token is never persisted or included in reports and logs.
+
+`METRICS_MAX_CONCURRENT_RUNS` bounds simultaneous k6 executions, defaults to `1`, and is clamped to the safe range `1..=32`. An execution request that finds all slots occupied returns a conflict while leaving its queued run unchanged; the slot is released when the execution handler exits.
 
 ## Database
 
