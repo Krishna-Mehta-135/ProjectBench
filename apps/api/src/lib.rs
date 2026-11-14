@@ -91,6 +91,10 @@ pub fn router(state: AppState) -> Router {
             axum::routing::post(cancel_run),
         )
         .route("/api/v1/runs/{run_id}/report", get(get_report))
+        .route(
+            "/api/v1/runs/{run_id}/report/markdown",
+            get(get_markdown_report),
+        )
         .route("/api/v1/runs/{run_id}/timeseries", get(get_time_series))
         .route("/api/v1/runs/{run_id}/artifacts", get(list_artifacts))
         .route(
@@ -900,6 +904,88 @@ async fn get_report(
         .await?
         .map(Json)
         .ok_or(ApiError::NotFound)
+}
+
+async fn get_markdown_report(
+    State(state): State<AppState>,
+    Path(run_id): Path<Uuid>,
+) -> Result<Response, ApiError> {
+    let repository = state.repository.ok_or(ApiError::NotFound)?;
+    let value = repository
+        .get_report(run_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+    let report: RunReport = serde_json::from_value(value)
+        .map_err(|error| ApiError::Execution(format!("stored report is invalid: {error}")))?;
+    let metric = |value: Option<f64>| {
+        value
+            .map(|value| format!("{value:.3}"))
+            .unwrap_or_else(|| "unavailable".into())
+    };
+    let mut body = format!(
+        "# Metrics run report\n\n- Run ID: `{}`\n- Schema: `{}`\n- Status: `{}`\n- Outcome: `{}`\n- Synthetic traffic: `{}`\n- Target origin: `{}`\n- Scenario: `{}` `{}`\n- Script: `{}`\n- Workload: `{}` VUs for `{}` seconds, `{}` seconds think time\n- Measured start: `{}`\n- Measured finish: `{}`\n- Elapsed seconds: `{}`\n\n## Metrics\n\n| Metric | Value |\n|---|---:|\n| Requests | {} |\n| Throughput/second | {:.3} |\n| Error rate | {:.4} |\n| p50 ms | {} |\n| p90 ms | {} |\n| p95 ms | {} |\n| p99 ms | {} |\n\n## Thresholds\n",
+        report.run_id,
+        report.schema_version,
+        format!("{:?}", report.status).to_lowercase(),
+        report.execution_outcome,
+        report.synthetic_traffic,
+        report.target_origin,
+        report.scenario.name,
+        report.scenario.version,
+        report.scenario.script_path,
+        report.workload.vus,
+        report.workload.duration_seconds,
+        report.workload.think_time_seconds,
+        report
+            .measured_start_at
+            .map(|value| value.to_rfc3339())
+            .unwrap_or_else(|| "unavailable".into()),
+        report
+            .measured_finish_at
+            .map(|value| value.to_rfc3339())
+            .unwrap_or_else(|| "unavailable".into()),
+        report
+            .elapsed_seconds
+            .map(|value| format!("{value:.3}"))
+            .unwrap_or_else(|| "unavailable".into()),
+        report.metrics.request_count,
+        report.metrics.throughput_per_second,
+        report.metrics.error_rate,
+        metric(report.metrics.p50_ms),
+        metric(report.metrics.p90_ms),
+        metric(report.metrics.p95_ms),
+        metric(report.metrics.p99_ms),
+    );
+    for threshold in &report.thresholds {
+        body.push_str(&format!(
+            "\n- `{}`: {} (observed {}, limit {})",
+            threshold.name,
+            if threshold.passed { "passed" } else { "failed" },
+            threshold
+                .observed
+                .map(|value| format!("{value:.4}"))
+                .unwrap_or_else(|| "unavailable".into()),
+            threshold
+                .limit
+                .map(|value| format!("{value:.4}"))
+                .unwrap_or_else(|| "unavailable".into())
+        ));
+    }
+    body.push_str("\n\n## Artifact references\n");
+    for artifact in &report.artifacts {
+        body.push_str(&format!("\n- `{}` — `{}`", artifact.kind, artifact.sha256));
+    }
+    body.push_str("\n\n## Limitations\n");
+    for limitation in &report.limitations {
+        body.push_str(&format!("\n- {limitation}"));
+    }
+    body.push('\n');
+    let mut response = Body::from(body).into_response();
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("text/markdown; charset=utf-8"),
+    );
+    Ok(response)
 }
 
 async fn get_time_series(
