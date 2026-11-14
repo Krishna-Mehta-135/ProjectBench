@@ -307,7 +307,7 @@ async fn execute_run(
         if matches!(&error, runner::RunnerError::Canceled) {
             repository.cancel_run(run_id).await?;
         } else {
-            repository.fail_run(run_id, &error.to_string()).await?;
+            let _ = repository.fail_run(run_id, &error.to_string()).await?;
         }
         return Err(ApiError::Execution(error.to_string()));
     }
@@ -349,9 +349,12 @@ async fn execute_run(
     });
     let report_json =
         serde_json::to_value(&report).map_err(|error| ApiError::Execution(error.to_string()))?;
-    repository
+    if !repository
         .save_report(run_id, "completed", Some(&report_json))
-        .await?;
+        .await?
+    {
+        return Err(ApiError::Conflict);
+    }
     Ok(Json(report))
 }
 
