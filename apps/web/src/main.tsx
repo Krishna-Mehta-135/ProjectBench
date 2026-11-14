@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { api, Environment, ProjectSummary, RunDetail, RunSummary, Scenario } from "./api";
+import { api, Environment, ProjectSummary, RunDetail, RunSummary, Scenario, TimeBucket } from "./api";
 import { canCancelRun, formatRunStatus } from "./runPresentation";
 import "./style.css";
 
@@ -98,6 +98,12 @@ function App() {
 
 function ReportDetail({ run, canceling, onCancel }: { run: RunDetail; canceling: boolean; onCancel: () => Promise<void> }) {
   const report = run.report;
+  const [buckets, setBuckets] = useState<TimeBucket[]>([]);
+  const [bucketError, setBucketError] = useState<string | null>(null);
+  useEffect(() => {
+    api.timeSeries(run.id).then(setBuckets).catch((cause: Error) => setBucketError(cause.message));
+  }, [run.id]);
+  const peakRequests = Math.max(1, ...buckets.map((bucket) => bucket.request_count));
   return <>
     <div className="report-title"><div><h2>{report?.scenario.name ?? "Run report"}</h2><p>{run.id} · {run.target_origin}</p></div><div className="status-actions"><span className={`status status-${run.status}`}>{formatRunStatus(run.status)}</span>{canCancelRun(run.status) && <button className="cancel-button" onClick={() => void onCancel()} disabled={canceling}>{canceling ? "Canceling…" : "Cancel run"}</button>}</div></div>
     <div className="lifecycle-meta"><span>Created {new Date(run.created_at).toLocaleString()}</span>{run.started_at && <span>Started {new Date(run.started_at).toLocaleString()}</span>}{run.finished_at && <span>Finished {new Date(run.finished_at).toLocaleString()}</span>}</div>
@@ -106,6 +112,7 @@ function ReportDetail({ run, canceling, onCancel }: { run: RunDetail; canceling:
       <div className="metric-grid">{[["Requests", report.metrics.request_count.toLocaleString()], ["Throughput", `${report.metrics.throughput_per_second.toFixed(2)}/s`], ["Error rate", `${(report.metrics.error_rate * 100).toFixed(2)}%`], ["p95", report.metrics.p95_ms === null ? "—" : `${report.metrics.p95_ms.toFixed(1)} ms`]].map(([label, value]) => <div className="metric" key={label}><small>{label}</small><strong>{value}</strong></div>)}</div>
       <div className="thresholds"><h3>Thresholds</h3>{report.thresholds.map((threshold) => <p key={threshold.name}><span className={threshold.passed ? "pass" : "fail"}>{threshold.passed ? "PASS" : "FAIL"}</span> {threshold.name}</p>)}</div>
       <div className="report-meta"><p><strong>Synthetic k6 traffic.</strong> This is controlled virtual-user evidence, not real-user or browser-rendering data.</p><p>Scenario {report.scenario.version} · {report.workload.vus} VUs · {report.workload.duration_seconds}s</p>{run.failure_reason && <p className="failure-reason"><strong>Reason:</strong> {run.failure_reason}</p>}</div>
+      <section className="timeseries" aria-labelledby="timeseries-heading"><h3 id="timeseries-heading">Measured time series</h3>{bucketError && <p className="muted">Time series unavailable: {bucketError}</p>}{!bucketError && buckets.length === 0 && <p className="muted">No measured buckets were persisted.</p>}{buckets.length > 0 && <><div className="bucket-bars" role="img" aria-label="Request count by ten-second measured bucket">{buckets.map((bucket) => <div className="bucket-bar" key={bucket.start_at} title={`${new Date(bucket.start_at).toLocaleTimeString()}: ${bucket.request_count} requests`}><span style={{ height: `${Math.max(4, bucket.request_count / peakRequests * 100)}%` }}/></div>)}</div><div className="table-wrap"><table><caption>Ten-second measured buckets</caption><thead><tr><th scope="col">Start</th><th scope="col">Requests</th><th scope="col">Failed</th><th scope="col">Avg latency</th></tr></thead><tbody>{buckets.map((bucket) => <tr key={bucket.start_at}><td>{new Date(bucket.start_at).toLocaleTimeString()}</td><td>{bucket.request_count}</td><td>{bucket.failed_count}</td><td>{bucket.duration_count ? `${(bucket.duration_sum_ms / bucket.duration_count).toFixed(1)} ms` : "—"}</td></tr>)}</tbody></table></div></>}</section>
       <div className="artifact-links"><h3>Artifacts</h3>{report.artifacts.map((artifact) => <a key={artifact.kind} href={api.artifactUrl(run.id, artifact.kind)} target="_blank" rel="noreferrer">Download {artifact.kind} →</a>)}</div>
     </>}
   </>;
