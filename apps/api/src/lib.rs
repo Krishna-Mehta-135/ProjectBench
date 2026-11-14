@@ -34,15 +34,22 @@ pub struct AppState {
     pub repository: Option<Arc<storage::PgRepository>>,
     pub cancellations: Arc<Mutex<HashMap<Uuid, tokio::sync::watch::Sender<bool>>>>,
     pub operator_token: Option<Arc<str>>,
+    pub run_slots: Arc<tokio::sync::Semaphore>,
 }
 
 impl AppState {
     pub fn new(policy: RunPolicy, repository: Option<Arc<storage::PgRepository>>) -> Self {
+        let max_concurrent_runs = std::env::var("METRICS_MAX_CONCURRENT_RUNS")
+            .ok()
+            .and_then(|value| value.parse::<usize>().ok())
+            .unwrap_or(1)
+            .clamp(1, 32);
         Self {
             policy: Arc::new(policy),
             repository,
             cancellations: Arc::new(Mutex::new(HashMap::new())),
             operator_token: None,
+            run_slots: Arc::new(tokio::sync::Semaphore::new(max_concurrent_runs)),
         }
     }
 }
@@ -1072,6 +1079,11 @@ async fn execute_run(
         return Err(ApiError::Conflict);
     }
     repository.validate_execution_configuration(run_id).await?;
+    let _run_permit = state
+        .run_slots
+        .clone()
+        .try_acquire_owned()
+        .map_err(|_| ApiError::Conflict)?;
     let scenario: ScenarioSnapshot = serde_json::from_value(detail.scenario_snapshot.clone())
         .map_err(|error| ApiError::Execution(error.to_string()))?;
     let workload: Workload = serde_json::from_value(detail.workload.clone())
