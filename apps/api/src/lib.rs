@@ -14,7 +14,7 @@ use axum::{
     http::{header, HeaderValue, Request, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
-    routing::{get, post},
+    routing::{get, patch, post},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
@@ -58,6 +58,10 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/api/v1/projects/{project_id}/environments",
             get(list_environments).post(create_environment),
+        )
+        .route(
+            "/api/v1/projects/{project_id}/environments/{environment_id}",
+            patch(update_environment),
         )
         .route(
             "/api/v1/projects/{project_id}/scenarios",
@@ -179,6 +183,11 @@ pub struct CreateEnvironmentRequest {
     pub name: String,
     pub base_url: String,
     pub allowed_origins: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateEnvironmentRequest {
+    pub enabled: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -497,6 +506,19 @@ async fn create_environment(
         .create_environment(project_id, &request.name, &base_url, &allowed)
         .await?;
     Ok((StatusCode::CREATED, Json(environment)))
+}
+
+async fn update_environment(
+    State(state): State<AppState>,
+    Path((project_id, environment_id)): Path<(Uuid, Uuid)>,
+    Json(request): Json<UpdateEnvironmentRequest>,
+) -> Result<Json<EnvironmentSummary>, ApiError> {
+    let repository = state.repository.ok_or(ApiError::Unavailable)?;
+    repository
+        .set_environment_enabled(project_id, environment_id, request.enabled)
+        .await?
+        .map(Json)
+        .ok_or(ApiError::NotFound)
 }
 
 async fn list_scenarios(

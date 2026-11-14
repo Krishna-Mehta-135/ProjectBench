@@ -212,6 +212,24 @@ impl PgRepository {
         Ok(sqlx::query_as::<_, EnvironmentSummary>("SELECT id, project_id, name, base_url, allowed_origins, enabled FROM environments WHERE project_id = $1 ORDER BY name").bind(project_id).fetch_all(&self.pool).await?)
     }
 
+    pub async fn set_environment_enabled(
+        &self,
+        project_id: uuid::Uuid,
+        environment_id: uuid::Uuid,
+        enabled: bool,
+    ) -> Result<Option<EnvironmentSummary>, StorageError> {
+        let result = sqlx::query("UPDATE environments SET enabled = $1, updated_at = NOW() WHERE id = $2 AND project_id = $3")
+            .bind(enabled)
+            .bind(environment_id)
+            .bind(project_id)
+            .execute(&self.pool)
+            .await?;
+        if result.rows_affected() == 0 {
+            return Ok(None);
+        }
+        self.get_environment(environment_id).await
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub async fn create_scenario(
         &self,
@@ -779,6 +797,22 @@ mod tests {
             .validate_run_configuration(&request, "https://example.test")
             .await
             .unwrap();
+        assert!(
+            !repository
+                .set_environment_enabled(project_id, environment_id, false)
+                .await
+                .unwrap()
+                .unwrap()
+                .enabled
+        );
+        assert!(
+            repository
+                .set_environment_enabled(project_id, environment_id, true)
+                .await
+                .unwrap()
+                .unwrap()
+                .enabled
+        );
 
         let run_id = repository
             .create_queued_run(
