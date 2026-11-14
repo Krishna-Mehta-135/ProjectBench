@@ -349,12 +349,9 @@ async fn execute_run(
     });
     let report_json =
         serde_json::to_value(&report).map_err(|error| ApiError::Execution(error.to_string()))?;
-    if !repository
+    repository
         .save_report(run_id, "completed", Some(&report_json))
-        .await?
-    {
-        return Err(ApiError::Conflict);
-    }
+        .await?;
     Ok(Json(report))
 }
 
