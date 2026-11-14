@@ -101,6 +101,26 @@ impl PgRepository {
         .await?)
     }
 
+    pub async fn update_project(
+        &self,
+        project_id: uuid::Uuid,
+        name: &str,
+        description: &str,
+    ) -> Result<Option<ProjectDetail>, StorageError> {
+        let result = sqlx::query(
+            "UPDATE projects SET name = $1, description = $2, updated_at = NOW() WHERE id = $3",
+        )
+        .bind(name.trim())
+        .bind(description.trim())
+        .bind(project_id)
+        .execute(&self.pool)
+        .await?;
+        if result.rows_affected() == 0 {
+            return Ok(None);
+        }
+        self.get_project(project_id).await
+    }
+
     pub async fn export_project(
         &self,
         project_id: uuid::Uuid,
