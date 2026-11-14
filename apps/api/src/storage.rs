@@ -146,13 +146,13 @@ impl PgRepository {
         Ok(result.rows_affected() == 1)
     }
 
-    pub async fn fail_run(&self, run_id: uuid::Uuid, reason: &str) -> Result<(), StorageError> {
-        sqlx::query("UPDATE runs SET status = 'failed', failure_reason = $1, finished_at = NOW() WHERE id = $2 AND status = 'running'")
+    pub async fn fail_run(&self, run_id: uuid::Uuid, reason: &str) -> Result<bool, StorageError> {
+        let result = sqlx::query("UPDATE runs SET status = 'failed', failure_reason = $1, finished_at = NOW() WHERE id = $2 AND status = 'running'")
             .bind(reason)
             .bind(run_id)
             .execute(&self.pool)
             .await?;
-        Ok(())
+        Ok(result.rows_affected() == 1)
     }
 
     pub async fn cancel_run(&self, run_id: uuid::Uuid) -> Result<bool, StorageError> {
@@ -176,14 +176,14 @@ impl PgRepository {
         run_id: uuid::Uuid,
         status: &str,
         report: Option<&serde_json::Value>,
-    ) -> Result<(), StorageError> {
-        sqlx::query("UPDATE runs SET status = $1, report = $2, failure_reason = NULL, finished_at = NOW() WHERE id = $3 AND status = 'running'")
+    ) -> Result<bool, StorageError> {
+        let result = sqlx::query("UPDATE runs SET status = $1, report = $2, failure_reason = NULL, finished_at = NOW() WHERE id = $3 AND status = 'running'")
             .bind(status)
             .bind(report)
             .bind(run_id)
             .execute(&self.pool)
             .await?;
-        Ok(())
+        Ok(result.rows_affected() == 1)
     }
 }
 
@@ -336,5 +336,30 @@ mod tests {
                 .await,
             Err(StorageError::Configuration(message)) if message.contains("disabled")
         ));
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn terminal_writes_cannot_overwrite_canceled_runs(pool: PgPool) {
+        let run_id = seed_run(&pool, "running", None).await;
+        let repository = PgRepository::from_pool(pool.clone());
+        assert!(repository.cancel_run(run_id).await.unwrap());
+        assert!(!repository
+            .fail_run(run_id, "late process error")
+            .await
+            .unwrap());
+        assert!(!repository
+            .save_report(run_id, "completed", Some(&serde_json::json!({"ok": true})))
+            .await
+            .unwrap());
+        let row: (String, Option<String>) =
+            sqlx::query_as("SELECT status, failure_reason FROM runs WHERE id = $1")
+                .bind(run_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(
+            row,
+            ("canceled".into(), Some("canceled by operator".into()))
+        );
     }
 }
