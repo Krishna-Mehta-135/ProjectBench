@@ -1,0 +1,31 @@
+{
+  "schema_version": "1",
+  "project": {
+    "name": "Canvassync",
+    "description": "Owner-approved synthetic read evidence for the room journey"
+  },
+  "environments": [
+    {
+      "name": "production-read-review",
+      "base_url": "https://api.canvassync.tech",
+      "allowed_origins": ["https://api.canvassync.tech"],
+      "enabled": false
+    }
+  ],
+  "scenarios": [
+    {
+      "name": "Canvassync room read",
+      "version": "1",
+      "script_path": "k6/scenarios/canvassync-room-read.js",
+      "config_snapshot": {
+        "routes": [
+          "POST /api/v1/auth/signin",
+          "GET /api/v1/room/mine",
+          "GET /api/v1/room/{seededRoomId}/shapes"
+        ]
+      },
+      "config_sha256": "sha256:d9a0b5ac765afdf2bc207b851d8517209dabec33e3874e5cd10e4e19d31ee835",
+      "secret_refs": ["TEST_ACCOUNT_EMAIL", "TEST_ACCOUNT_PASSWORD", "SEEDED_ROOM_ID"]
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "schema_version": "1",
+  "project": {
+    "name": "Knowdex",
+    "description": "Owner-approved synthetic read evidence for the workspace journey"
+  },
+  "environments": [
+    {
+      "name": "production-read-review",
+      "base_url": "https://api.knowdex.me",
+      "allowed_origins": ["https://api.knowdex.me"],
+      "enabled": false
+    }
+  ],
+  "scenarios": [
+    {
+      "name": "Knowdex workspace read",
+      "version": "1",
+      "script_path": "k6/scenarios/knowdex-workspace-read.js",
+      "config_snapshot": {
+        "routes": [
+          "POST /api/v1/auth/login",
+          "GET /api/v1/auth/me",
+          "GET /api/v1/workspaces",
+          "GET /api/v1/content?workspaceId={seededWorkspaceId}"
+        ]
+      },
+      "config_sha256": "sha256:82b406055db150f7294fbf468b2d575d3b8ae2ba8af235ecb2c0cd23345f6a77",
+      "secret_refs": ["TEST_ACCOUNT_CREDENTIAL", "TEST_ACCOUNT_PASSWORD", "SEEDED_WORKSPACE_ID"]
+    }
+  ]
+}
