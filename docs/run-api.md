@@ -28,6 +28,8 @@ Execution acquisition is atomic. Only a queued run can be claimed; concurrent re
 
 ## Lifecycle metadata
 
+`GET /api/v1/runs` accepts optional `project_id`, `status`, `limit`, and `offset` query parameters. Results remain a JSON array, default to the newest 50 runs, cap `limit` at 100, and use `created_at DESC, id DESC` ordering for deterministic pages. Status filters accept `queued`, `running`, `completed`, `failed`, `canceled`, or `aborted`; invalid filters and limits are rejected.
+
 ## Environment controls
 
 `PATCH /api/v1/projects/{project_id}/environments/{environment_id}` accepts `{ "enabled": false }` to revoke an environment without editing PostgreSQL. The project scope is checked server-side and the updated registry record is returned. Disabling an environment prevents new run creation and causes queued execution to fail the policy revalidation before k6 starts; re-enable it only after the target and workload have been reviewed.

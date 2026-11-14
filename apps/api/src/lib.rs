@@ -10,7 +10,7 @@ pub mod timeseries;
 
 use axum::{
     body::Body,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::{header, HeaderValue, Request, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
@@ -340,6 +340,14 @@ pub struct AuditEvent {
     pub resource_id: Option<Uuid>,
     pub metadata: serde_json::Value,
     pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RunListQuery {
+    pub project_id: Option<Uuid>,
+    pub status: Option<String>,
+    pub limit: Option<u32>,
+    pub offset: Option<u32>,
 }
 
 type MetricExtractor = fn(&RunReport) -> Option<f64>;
@@ -702,9 +710,38 @@ fn normalize_origin(value: &str) -> Result<String, ApiError> {
     Ok(parsed.origin().ascii_serialization())
 }
 
-async fn list_runs(State(state): State<AppState>) -> Result<Json<Vec<RunSummary>>, ApiError> {
+async fn list_runs(
+    State(state): State<AppState>,
+    Query(query): Query<RunListQuery>,
+) -> Result<Json<Vec<RunSummary>>, ApiError> {
+    const DEFAULT_LIMIT: u32 = 50;
+    const MAX_LIMIT: u32 = 100;
+    let limit = query.limit.unwrap_or(DEFAULT_LIMIT);
+    if limit == 0 || limit > MAX_LIMIT {
+        return Err(ApiError::Execution(
+            "limit must be between 1 and 100".into(),
+        ));
+    }
+    if let Some(status) = &query.status {
+        if !matches!(
+            status.as_str(),
+            "queued" | "running" | "completed" | "failed" | "canceled" | "aborted"
+        ) {
+            return Err(ApiError::Execution("invalid run status filter".into()));
+        }
+    }
+    let offset = query.offset.unwrap_or(0);
     match state.repository {
-        Some(repository) => Ok(Json(repository.list_runs().await?)),
+        Some(repository) => Ok(Json(
+            repository
+                .list_runs(
+                    query.project_id,
+                    query.status.as_deref(),
+                    i64::from(limit),
+                    i64::from(offset),
+                )
+                .await?,
+        )),
         None => Ok(Json(Vec::new())),
     }
 }
