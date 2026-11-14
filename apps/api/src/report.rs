@@ -68,6 +68,7 @@ pub fn build_report(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn build_report_with_timing(
     summary_json: &str,
     status: RunStatus,
