@@ -1,4 +1,4 @@
-use crate::{ProjectSummary, RunSummary};
+use crate::{EnvironmentSummary, ProjectDetail, ProjectSummary, RunSummary, ScenarioSummary};
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use thiserror::Error;
 
@@ -32,7 +32,86 @@ impl PgRepository {
     }
 
     pub async fn list_projects(&self) -> Result<Vec<ProjectSummary>, StorageError> {
-        Ok(sqlx::query_as::<_, ProjectSummary>("SELECT id, name, '' AS environment, NULL::uuid AS latest_run_id FROM projects ORDER BY name").fetch_all(&self.pool).await?)
+        Ok(sqlx::query_as::<_, ProjectSummary>("SELECT p.id, p.name, COALESCE((SELECT e.name FROM environments e WHERE e.project_id = p.id AND e.enabled ORDER BY e.name LIMIT 1), '') AS environment, (SELECT r.id FROM runs r WHERE r.project_id = p.id ORDER BY r.created_at DESC LIMIT 1) AS latest_run_id FROM projects p ORDER BY p.name").fetch_all(&self.pool).await?)
+    }
+
+    pub async fn create_project(
+        &self,
+        name: &str,
+        description: &str,
+    ) -> Result<ProjectDetail, StorageError> {
+        let id = uuid::Uuid::new_v4();
+        sqlx::query("INSERT INTO projects (id, name, description, created_at, updated_at) VALUES ($1, $2, $3, NOW(), NOW())")
+            .bind(id).bind(name.trim()).bind(description.trim()).execute(&self.pool).await?;
+        self.get_project(id).await?.ok_or_else(|| {
+            StorageError::Configuration("created project could not be loaded".into())
+        })
+    }
+
+    pub async fn get_project(&self, id: uuid::Uuid) -> Result<Option<ProjectDetail>, StorageError> {
+        Ok(sqlx::query_as::<_, ProjectDetail>(
+            "SELECT id, name, description, created_at, updated_at FROM projects WHERE id = $1",
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?)
+    }
+
+    pub async fn create_environment(
+        &self,
+        project_id: uuid::Uuid,
+        name: &str,
+        base_url: &str,
+        allowed_origins: &[String],
+    ) -> Result<EnvironmentSummary, StorageError> {
+        let id = uuid::Uuid::new_v4();
+        sqlx::query("INSERT INTO environments (id, project_id, name, base_url, allowed_origins, created_at, updated_at) SELECT $1, $2, $3, $4, $5, NOW(), NOW() WHERE EXISTS (SELECT 1 FROM projects WHERE id = $2)")
+            .bind(id).bind(project_id).bind(name.trim()).bind(base_url).bind(serde_json::to_value(allowed_origins).expect("origins serialize")).execute(&self.pool).await?;
+        self.get_environment(id)
+            .await?
+            .ok_or_else(|| StorageError::Configuration("project does not exist".into()))
+    }
+
+    async fn get_environment(
+        &self,
+        id: uuid::Uuid,
+    ) -> Result<Option<EnvironmentSummary>, StorageError> {
+        Ok(sqlx::query_as::<_, EnvironmentSummary>("SELECT id, project_id, name, base_url, allowed_origins, enabled FROM environments WHERE id = $1").bind(id).fetch_optional(&self.pool).await?)
+    }
+
+    pub async fn list_environments(
+        &self,
+        project_id: uuid::Uuid,
+    ) -> Result<Vec<EnvironmentSummary>, StorageError> {
+        Ok(sqlx::query_as::<_, EnvironmentSummary>("SELECT id, project_id, name, base_url, allowed_origins, enabled FROM environments WHERE project_id = $1 ORDER BY name").bind(project_id).fetch_all(&self.pool).await?)
+    }
+
+    pub async fn create_scenario(
+        &self,
+        project_id: uuid::Uuid,
+        name: &str,
+        version: &str,
+        script_path: &str,
+        config_snapshot: &serde_json::Value,
+        config_sha256: &str,
+    ) -> Result<ScenarioSummary, StorageError> {
+        let id = uuid::Uuid::new_v4();
+        sqlx::query("INSERT INTO scenarios (id, project_id, name, version, script_path, config_snapshot, config_sha256, created_at) SELECT $1, $2, $3, $4, $5, $6, $7, NOW() WHERE EXISTS (SELECT 1 FROM projects WHERE id = $2)")
+            .bind(id).bind(project_id).bind(name.trim()).bind(version.trim()).bind(script_path).bind(config_snapshot).bind(config_sha256).execute(&self.pool).await?;
+        self.get_scenario(id)
+            .await?
+            .ok_or_else(|| StorageError::Configuration("project does not exist".into()))
+    }
+
+    async fn get_scenario(&self, id: uuid::Uuid) -> Result<Option<ScenarioSummary>, StorageError> {
+        Ok(sqlx::query_as::<_, ScenarioSummary>("SELECT id, project_id, name, version, script_path, config_snapshot, config_sha256 FROM scenarios WHERE id = $1").bind(id).fetch_optional(&self.pool).await?)
+    }
+
+    pub async fn list_scenarios(
+        &self,
+        project_id: uuid::Uuid,
+    ) -> Result<Vec<ScenarioSummary>, StorageError> {
+        Ok(sqlx::query_as::<_, ScenarioSummary>("SELECT id, project_id, name, version, script_path, config_snapshot, config_sha256 FROM scenarios WHERE project_id = $1 ORDER BY name, version").bind(project_id).fetch_all(&self.pool).await?)
     }
 
     pub async fn list_runs(&self) -> Result<Vec<RunSummary>, StorageError> {
