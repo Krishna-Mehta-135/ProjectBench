@@ -43,7 +43,7 @@ docker run --rm -v projectbench_metrics-artifacts:/data -v "$PWD:/backup" alpine
 
 Restore into a disposable stack first, then start the API so SQLx applies additive migrations. Keep the previous image and database/artifact backups until the restored health check and a hash-verified artifact download succeed. There is currently no automatic artifact deletion job; retention timestamps are recorded as metadata and operational cleanup must be explicitly scheduled after a reviewed policy exists.
 
-The API `/health` endpoint is a liveness probe. Database connectivity and migrations are validated during startup; a process that cannot connect or migrate exits rather than presenting a ready control plane.
+The API `/health` endpoint is a liveness probe and remains available in local no-database mode. Use `/ready` for deployment readiness: it returns success only when the configured PostgreSQL repository answers a lightweight query. Database migrations are still validated during startup; a process that cannot connect or migrate exits rather than presenting a ready control plane. Both probes are safe to expose to an orchestrator even when operator authentication is enabled.
 
 ## Nonsecret configuration transfer
 
