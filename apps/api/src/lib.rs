@@ -274,6 +274,8 @@ pub struct MetricDelta {
     pub relative_percent: Option<f64>,
 }
 
+type MetricExtractor = fn(&RunReport) -> Option<f64>;
+
 async fn list_projects(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<ProjectSummary>>, ApiError> {
@@ -524,7 +526,7 @@ async fn compare_runs(
         .report
         .as_ref()
         .and_then(|value| serde_json::from_value::<RunReport>(value.clone()).ok());
-    let metric_names: [(&str, fn(&RunReport) -> Option<f64>); 6] = [
+    let metric_names: [(&str, MetricExtractor); 6] = [
         ("p50_ms", |report: &RunReport| report.metrics.p50_ms),
         ("p90_ms", |report: &RunReport| report.metrics.p90_ms),
         ("p95_ms", |report: &RunReport| report.metrics.p95_ms),
