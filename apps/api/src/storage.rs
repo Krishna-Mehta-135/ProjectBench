@@ -498,3 +498,54 @@ mod tests {
             confirmed: true,
         };
         repository
+            .validate_run_configuration(&request, "https://example.test")
+            .await
+            .unwrap();
+
+        let mut cross_project = request.clone();
+        cross_project.project_id = uuid::Uuid::new_v4();
+        assert!(matches!(
+            repository
+                .validate_run_configuration(&cross_project, "https://example.test")
+                .await,
+            Err(StorageError::Configuration(message)) if message.contains("belong")
+        ));
+
+        sqlx::query("UPDATE environments SET enabled = FALSE WHERE id = $1")
+            .bind(environment_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert!(matches!(
+            repository
+                .validate_run_configuration(&request, "https://example.test")
+                .await,
+            Err(StorageError::Configuration(message)) if message.contains("disabled")
+        ));
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn terminal_writes_cannot_overwrite_canceled_runs(pool: PgPool) {
+        let run_id = seed_run(&pool, "running", None).await;
+        let repository = PgRepository::from_pool(pool.clone());
+        assert!(repository.cancel_run(run_id).await.unwrap());
+        assert!(!repository
+            .fail_run(run_id, "late process error")
+            .await
+            .unwrap());
+        assert!(!repository
+            .save_report(run_id, "completed", Some(&serde_json::json!({"ok": true})))
+            .await
+            .unwrap());
+        let row: (String, Option<String>) =
+            sqlx::query_as("SELECT status, failure_reason FROM runs WHERE id = $1")
+                .bind(run_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(
+            row,
+            ("canceled".into(), Some("canceled by operator".into()))
+        );
+    }
+}
