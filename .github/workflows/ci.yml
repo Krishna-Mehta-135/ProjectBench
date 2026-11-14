@@ -68,10 +68,7 @@ jobs:
       - name: Verify web lockfile
         run: test -s package-lock.json
         working-directory: apps/web
-      - run: npm ci --no-audit --no-fund
-        working-directory: apps/web
-      - run: npm run build
-        working-directory: apps/web
-      - run: npm test -- --run
-        working-directory: apps/web
+      - run: npm ci --prefix "$GITHUB_WORKSPACE/apps/web" --no-audit --no-fund
+      - run: npm --prefix "$GITHUB_WORKSPACE/apps/web" run build
+      - run: npm --prefix "$GITHUB_WORKSPACE/apps/web" test -- --run
 
