@@ -82,6 +82,86 @@ impl PgRepository {
         .await?)
     }
 
+    pub async fn export_project(
+        &self,
+        project_id: uuid::Uuid,
+    ) -> Result<Option<crate::RegistryExport>, StorageError> {
+        let project = match self.get_project(project_id).await? {
+            Some(project) => project,
+            None => return Ok(None),
+        };
+        let environments = self.list_environments(project_id).await?;
+        let scenarios = self.list_scenarios(project_id).await?;
+        Ok(Some(crate::RegistryExport {
+            schema_version: "1".into(),
+            project: crate::ProjectConfig {
+                name: project.name,
+                description: project.description,
+            },
+            environments: environments
+                .into_iter()
+                .map(|environment| crate::EnvironmentConfig {
+                    name: environment.name,
+                    base_url: environment.base_url,
+                    allowed_origins: serde_json::from_value(environment.allowed_origins)
+                        .unwrap_or_default(),
+                    enabled: environment.enabled,
+                })
+                .collect(),
+            scenarios: scenarios
+                .into_iter()
+                .map(|scenario| crate::ScenarioConfig {
+                    name: scenario.name,
+                    version: scenario.version,
+                    script_path: scenario.script_path,
+                    config_snapshot: scenario.config_snapshot,
+                    config_sha256: scenario.config_sha256,
+                })
+                .collect(),
+        }))
+    }
+
+    pub async fn import_project(
+        &self,
+        export: &crate::RegistryExport,
+    ) -> Result<crate::RegistryExport, StorageError> {
+        let mut transaction = self.pool.begin().await?;
+        let project_id = uuid::Uuid::new_v4();
+        sqlx::query("INSERT INTO projects (id, name, description, created_at, updated_at) VALUES ($1, $2, $3, NOW(), NOW())")
+            .bind(project_id)
+            .bind(export.project.name.trim())
+            .bind(export.project.description.trim())
+            .execute(&mut *transaction)
+            .await?;
+        for environment in &export.environments {
+            sqlx::query("INSERT INTO environments (id, project_id, name, base_url, allowed_origins, enabled, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())")
+                .bind(uuid::Uuid::new_v4())
+                .bind(project_id)
+                .bind(environment.name.trim())
+                .bind(&environment.base_url)
+                .bind(serde_json::to_value(&environment.allowed_origins).expect("origins serialize"))
+                .bind(environment.enabled)
+                .execute(&mut *transaction)
+                .await?;
+        }
+        for scenario in &export.scenarios {
+            sqlx::query("INSERT INTO scenarios (id, project_id, name, version, script_path, config_snapshot, config_sha256, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())")
+                .bind(uuid::Uuid::new_v4())
+                .bind(project_id)
+                .bind(scenario.name.trim())
+                .bind(scenario.version.trim())
+                .bind(&scenario.script_path)
+                .bind(&scenario.config_snapshot)
+                .bind(&scenario.config_sha256)
+                .execute(&mut *transaction)
+                .await?;
+        }
+        transaction.commit().await?;
+        self.export_project(project_id).await?.ok_or_else(|| {
+            StorageError::Configuration("imported project could not be loaded".into())
+        })
+    }
+
     pub async fn create_environment(
         &self,
         project_id: uuid::Uuid,
