@@ -6,6 +6,7 @@ export type ProjectSummary = {
 };
 export type Environment = { id: string; project_id: string; name: string; base_url: string; allowed_origins: string[]; enabled: boolean };
 export type Scenario = { id: string; project_id: string; name: string; version: string; script_path: string; config_snapshot: { routes?: string[] }; config_sha256: string };
+export type TimeBucket = { start_at: string; request_count: number; failed_count: number; duration_count: number; duration_sum_ms: number; duration_max_ms: number | null };
 
 export type RunSummary = {
   id: string;
@@ -71,6 +72,7 @@ export const api = {
   scenarios: (projectId: string) => get<Scenario[]>(`/api/v1/projects/${projectId}/scenarios`),
   runs: () => get<RunSummary[]>("/api/v1/runs"),
   run: (id: string) => get<RunDetail>(`/api/v1/runs/${id}`),
+  timeSeries: (id: string) => get<TimeBucket[]>(`/api/v1/runs/${id}/timeseries`),
   artifactUrl: (id: string, kind: string) => `${apiOrigin}/api/v1/runs/${id}/artifacts/${encodeURIComponent(kind)}`,
   createRun: async (request: CreateRunRequest) => {
     const response = await fetch(`${apiOrigin}/api/v1/runs`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(request) });

@@ -20,6 +20,16 @@ pub struct PgRepository {
     pool: PgPool,
 }
 
+#[derive(sqlx::FromRow)]
+struct DbTimeBucket {
+    start_at: chrono::DateTime<chrono::Utc>,
+    request_count: i64,
+    failed_count: i64,
+    duration_count: i64,
+    duration_sum_ms: f64,
+    duration_max_ms: Option<f64>,
+}
+
 impl PgRepository {
     pub fn from_pool(pool: PgPool) -> Self {
         Self { pool }
@@ -198,6 +208,27 @@ impl PgRepository {
         }
         transaction.commit().await?;
         Ok(())
+    }
+
+    pub async fn list_time_buckets(
+        &self,
+        run_id: uuid::Uuid,
+    ) -> Result<Vec<TimeBucket>, StorageError> {
+        let rows = sqlx::query_as::<_, DbTimeBucket>("SELECT bucket_start AS start_at, request_count, failed_count, duration_count, duration_sum_ms, duration_max_ms FROM run_time_buckets WHERE run_id = $1 ORDER BY bucket_start")
+            .bind(run_id)
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(rows
+            .into_iter()
+            .map(|row| TimeBucket {
+                start_at: row.start_at,
+                request_count: row.request_count.max(0) as u64,
+                failed_count: row.failed_count.max(0) as u64,
+                duration_count: row.duration_count.max(0) as u64,
+                duration_sum_ms: row.duration_sum_ms,
+                duration_max_ms: row.duration_max_ms,
+            })
+            .collect())
     }
 
     pub async fn get_artifact(
