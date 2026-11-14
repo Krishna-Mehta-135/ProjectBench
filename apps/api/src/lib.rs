@@ -17,7 +17,6 @@ use axum::{
     routing::{get, patch, post},
     Json, Router,
 };
-use tower_http::cors::{Any, CorsLayer};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
@@ -26,6 +25,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 use thiserror::Error;
+use tower_http::cors::{Any, CorsLayer};
 use url::Url;
 use uuid::Uuid;
 
