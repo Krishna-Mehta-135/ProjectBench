@@ -787,6 +787,7 @@ async fn execute_run(
     if detail.status != "queued" {
         return Err(ApiError::Conflict);
     }
+    repository.validate_execution_configuration(run_id).await?;
     let scenario: ScenarioSnapshot = serde_json::from_value(detail.scenario_snapshot.clone())
         .map_err(|error| ApiError::Execution(error.to_string()))?;
     let workload: Workload = serde_json::from_value(detail.workload.clone())

@@ -42,6 +42,24 @@ pub struct CompareRunRecord {
     pub report: Option<serde_json::Value>,
 }
 
+#[derive(Debug, sqlx::FromRow)]
+struct DbExecutionConfiguration {
+    project_id: uuid::Uuid,
+    environment_id: uuid::Uuid,
+    scenario_id: uuid::Uuid,
+    target_origin: String,
+    workload: serde_json::Value,
+    scenario_snapshot: serde_json::Value,
+    scenario_sha256: String,
+    environment_project_id: uuid::Uuid,
+    environment_enabled: bool,
+    allowed_origins: serde_json::Value,
+    scenario_project_id: uuid::Uuid,
+    scenario_name: String,
+    scenario_version: String,
+    scenario_script_path: String,
+}
+
 impl PgRepository {
     pub fn from_pool(pool: PgPool) -> Self {
         Self { pool }
@@ -482,6 +500,71 @@ impl PgRepository {
         Ok(())
     }
 
+    pub async fn validate_execution_configuration(
+        &self,
+        run_id: uuid::Uuid,
+    ) -> Result<(), StorageError> {
+        let row = sqlx::query_as::<_, DbExecutionConfiguration>(
+            "SELECT r.project_id, r.environment_id, r.scenario_id, r.target_origin,
+                    r.workload, r.scenario_snapshot, r.scenario_sha256,
+                    e.project_id AS environment_project_id, e.enabled AS environment_enabled,
+                    e.allowed_origins, s.project_id AS scenario_project_id,
+                    s.name AS scenario_name, s.version AS scenario_version,
+                    s.script_path AS scenario_script_path
+             FROM runs r
+             JOIN environments e ON e.id = r.environment_id
+             JOIN scenarios s ON s.id = r.scenario_id
+             WHERE r.id = $1 AND r.status = 'queued'",
+        )
+        .bind(run_id)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or_else(|| {
+            StorageError::Configuration("queued run configuration is unavailable".into())
+        })?;
+
+        if row.project_id != row.environment_project_id
+            || row.project_id != row.scenario_project_id
+            || row.environment_id.is_nil()
+            || row.scenario_id.is_nil()
+        {
+            return Err(StorageError::Configuration(
+                "queued run ownership no longer matches its registry records".into(),
+            ));
+        }
+        if !row.environment_enabled {
+            return Err(StorageError::Configuration(
+                "environment is disabled".into(),
+            ));
+        }
+        let origins: Vec<String> =
+            serde_json::from_value(row.allowed_origins).map_err(|error| {
+                StorageError::Configuration(format!("environment allowlist is invalid: {error}"))
+            })?;
+        if !origins.iter().any(|origin| origin == &row.target_origin) {
+            return Err(StorageError::Configuration(
+                "queued run target origin is no longer approved".into(),
+            ));
+        }
+        let scenario: crate::ScenarioSnapshot = serde_json::from_value(row.scenario_snapshot)
+            .map_err(|error| {
+                StorageError::Configuration(format!("queued scenario snapshot is invalid: {error}"))
+            })?;
+        if scenario.name != row.scenario_name
+            || scenario.version != row.scenario_version
+            || scenario.script_path != row.scenario_script_path
+            || crate::scenario_hash(&scenario) != row.scenario_sha256
+        {
+            return Err(StorageError::Configuration(
+                "queued scenario snapshot no longer matches the approved version".into(),
+            ));
+        }
+        serde_json::from_value::<crate::Workload>(row.workload).map_err(|error| {
+            StorageError::Configuration(format!("queued workload is invalid: {error}"))
+        })?;
+        Ok(())
+    }
+
     pub async fn update_status(
         &self,
         run_id: uuid::Uuid,
@@ -672,6 +755,29 @@ mod tests {
             .validate_run_configuration(&request, "https://example.test")
             .await
             .unwrap();
+
+        let run_id = repository
+            .create_queued_run(
+                &request,
+                "https://example.test",
+                &crate::scenario_hash(&request.scenario),
+            )
+            .await
+            .unwrap();
+        repository
+            .validate_execution_configuration(run_id)
+            .await
+            .unwrap();
+
+        sqlx::query("UPDATE runs SET scenario_snapshot = jsonb_build_object('name', 'changed', 'version', '1', 'script_path', 'scenario.js', 'routes', jsonb_build_array('GET /health')) WHERE id = $1")
+            .bind(run_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert!(matches!(
+            repository.validate_execution_configuration(run_id).await,
+            Err(StorageError::Configuration(message)) if message.contains("snapshot")
+        ));
 
         let mut cross_project = request.clone();
         cross_project.project_id = uuid::Uuid::new_v4();
