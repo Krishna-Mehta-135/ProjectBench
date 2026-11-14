@@ -58,9 +58,6 @@ jobs:
   web:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    defaults:
-      run:
-        working-directory: apps/web
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -68,7 +65,13 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: apps/web/package-lock.json
+      - name: Verify web lockfile
+        run: test -s package-lock.json
+        working-directory: apps/web
       - run: npm ci --no-audit --no-fund
+        working-directory: apps/web
       - run: npm run build
+        working-directory: apps/web
       - run: npm test -- --run
+        working-directory: apps/web
 
