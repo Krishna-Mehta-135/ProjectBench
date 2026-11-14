@@ -79,6 +79,32 @@ impl PgRepository {
         Ok(sqlx::query_as::<_, ProjectSummary>("SELECT p.id, p.name, COALESCE((SELECT e.name FROM environments e WHERE e.project_id = p.id AND e.enabled ORDER BY e.name LIMIT 1), '') AS environment, (SELECT r.id FROM runs r WHERE r.project_id = p.id ORDER BY r.created_at DESC LIMIT 1) AS latest_run_id FROM projects p ORDER BY p.name").fetch_all(&self.pool).await?)
     }
 
+    pub async fn record_audit_event(
+        &self,
+        action: &str,
+        resource_type: &str,
+        resource_id: Option<uuid::Uuid>,
+        metadata: &serde_json::Value,
+    ) -> Result<(), StorageError> {
+        sqlx::query("INSERT INTO audit_events (id, action, resource_type, resource_id, metadata, created_at) VALUES ($1, $2, $3, $4, $5, NOW())")
+            .bind(uuid::Uuid::new_v4())
+            .bind(action)
+            .bind(resource_type)
+            .bind(resource_id)
+            .bind(metadata)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn list_audit_events(&self) -> Result<Vec<crate::AuditEvent>, StorageError> {
+        Ok(sqlx::query_as::<_, crate::AuditEvent>(
+            "SELECT id, action, resource_type, resource_id, metadata, created_at FROM audit_events ORDER BY created_at DESC, id DESC",
+        )
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
     pub async fn create_project(
         &self,
         name: &str,
