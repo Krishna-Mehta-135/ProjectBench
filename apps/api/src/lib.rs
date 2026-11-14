@@ -301,6 +301,9 @@ fn default_operator() -> String {
 #[derive(Debug, Serialize, sqlx::FromRow)]
 pub struct RunSummary {
     pub id: Uuid,
+    pub project_id: Uuid,
+    pub environment_id: Uuid,
+    pub scenario_id: Uuid,
     pub status: String,
     pub synthetic_traffic: bool,
     pub report_available: bool,

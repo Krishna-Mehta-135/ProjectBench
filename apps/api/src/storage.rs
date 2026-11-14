@@ -318,7 +318,7 @@ impl PgRepository {
         limit: i64,
         offset: i64,
     ) -> Result<Vec<RunSummary>, StorageError> {
-        Ok(sqlx::query_as::<_, RunSummary>("SELECT id, status, TRUE AS synthetic_traffic, (report IS NOT NULL) AS report_available, created_at, started_at, finished_at, failure_reason FROM runs WHERE ($1::uuid IS NULL OR project_id = $1) AND ($2::text IS NULL OR status = $2) ORDER BY created_at DESC, id DESC LIMIT $3 OFFSET $4")
+        Ok(sqlx::query_as::<_, RunSummary>("SELECT id, project_id, environment_id, scenario_id, status, TRUE AS synthetic_traffic, (report IS NOT NULL) AS report_available, created_at, started_at, finished_at, failure_reason FROM runs WHERE ($1::uuid IS NULL OR project_id = $1) AND ($2::text IS NULL OR status = $2) ORDER BY created_at DESC, id DESC LIMIT $3 OFFSET $4")
             .bind(project_id)
             .bind(status)
             .bind(limit)
