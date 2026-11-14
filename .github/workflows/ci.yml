@@ -71,6 +71,9 @@ jobs:
           test -s package-lock.json
       - run: |
           cd "$GITHUB_WORKSPACE/apps/web"
+          pwd
+          ls -l package.json package-lock.json
+          npm config get package-lock
           npm ci --no-audit --no-fund
       - run: |
           cd "$GITHUB_WORKSPACE/apps/web"
