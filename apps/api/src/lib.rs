@@ -6,6 +6,7 @@ pub mod orchestration;
 pub mod report;
 pub mod runner;
 pub mod storage;
+pub mod timeseries;
 
 use axum::{
     body::Body,
@@ -550,6 +551,11 @@ async fn execute_run(
     let measured_finish_at = chrono::Utc::now();
     let raw = std::fs::read(&request.output_json)
         .map_err(|error| ApiError::Execution(error.to_string()))?;
+    let bucket_ingest = timeseries::ingest_jsonl(std::io::Cursor::new(raw.as_slice()), 10, 3600)
+        .map_err(|error| ApiError::Execution(error.to_string()))?;
+    repository
+        .replace_time_buckets(run_id, &bucket_ingest.buckets)
+        .await?;
     let store = artifacts::LocalArtifactStore::new(&root);
     let raw_hash = store.put(&raw_relative, &raw)?;
     let summary_hash = store.put(&summary_relative, summary.as_bytes())?;
@@ -603,6 +609,17 @@ async fn execute_run(
         report.execution_outcome = "threshold_failed".into();
         report.limitations.push(format!(
             "k6 exited nonzero after producing a measured summary: {reason}"
+        ));
+    }
+    if bucket_ingest.malformed_lines > 0 || bucket_ingest.truncated {
+        report.limitations.push(format!(
+            "time-series ingestion skipped {} malformed lines{}",
+            bucket_ingest.malformed_lines,
+            if bucket_ingest.truncated {
+                " and reached its bucket limit"
+            } else {
+                ""
+            }
         ));
     }
     let report_json =
