@@ -521,6 +521,7 @@ fn approved_runtime_env(target_origin: &str, workload: &Workload) -> Vec<(String
         "TEST_ACCOUNT_EMAIL",
         "TEST_ACCOUNT_PASSWORD",
         "SEEDED_ROOM_ID",
+        "K6_FIXTURE_MODE",
     ] {
         if let Ok(value) = std::env::var(key) {
             values.push((key.into(), value));
