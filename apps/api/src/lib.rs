@@ -53,6 +53,8 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/projects", get(list_projects))
         .route("/api/v1/projects", post(create_project))
         .route("/api/v1/projects/{project_id}", get(get_project))
+        .route("/api/v1/projects/{project_id}/export", get(export_project))
+        .route("/api/v1/projects/import", post(import_project))
         .route(
             "/api/v1/projects/{project_id}/environments",
             get(list_environments).post(create_environment),
@@ -187,6 +189,37 @@ pub struct CreateScenarioRequest {
     pub config_snapshot: serde_json::Value,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RegistryExport {
+    pub schema_version: String,
+    pub project: ProjectConfig,
+    pub environments: Vec<EnvironmentConfig>,
+    pub scenarios: Vec<ScenarioConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectConfig {
+    pub name: String,
+    pub description: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EnvironmentConfig {
+    pub name: String,
+    pub base_url: String,
+    pub allowed_origins: Vec<String>,
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScenarioConfig {
+    pub name: String,
+    pub version: String,
+    pub script_path: String,
+    pub config_snapshot: serde_json::Value,
+    pub config_sha256: String,
+}
+
 #[derive(Debug, Serialize, sqlx::FromRow)]
 pub struct BaselineSummary {
     pub project_id: Uuid,
@@ -307,6 +340,107 @@ async fn get_project(
         .await?
         .map(Json)
         .ok_or(ApiError::NotFound)
+}
+
+async fn export_project(
+    State(state): State<AppState>,
+    Path(project_id): Path<Uuid>,
+) -> Result<Json<RegistryExport>, ApiError> {
+    let repository = state.repository.ok_or(ApiError::Unavailable)?;
+    Ok(Json(
+        repository
+            .export_project(project_id)
+            .await?
+            .ok_or(ApiError::NotFound)?,
+    ))
+}
+
+async fn import_project(
+    State(state): State<AppState>,
+    Json(request): Json<RegistryExport>,
+) -> Result<(StatusCode, Json<RegistryExport>), ApiError> {
+    if request.schema_version != "1" {
+        return Err(ApiError::Execution(
+            "unsupported registry schema version".into(),
+        ));
+    }
+    let mut normalized_request = request;
+    validate_name(&normalized_request.project.name)?;
+    for environment in &mut normalized_request.environments {
+        validate_name(&environment.name)?;
+        environment.base_url = normalize_origin(&environment.base_url)?;
+        environment.allowed_origins = environment
+            .allowed_origins
+            .iter()
+            .map(|origin| normalize_origin(origin))
+            .collect::<Result<Vec<_>, _>>()?;
+        if environment.allowed_origins.is_empty()
+            || !environment
+                .allowed_origins
+                .iter()
+                .any(|origin| origin == &environment.base_url)
+        {
+            return Err(ApiError::Policy(PolicyError::TargetNotAllowlisted));
+        }
+    }
+    for scenario in &normalized_request.scenarios {
+        validate_name(&scenario.name)?;
+        if scenario.version.trim().is_empty()
+            || scenario.script_path.trim().is_empty()
+            || scenario.script_path.contains("..")
+            || scenario.script_path.starts_with('/')
+            || contains_secret_key(&scenario.config_snapshot)
+        {
+            return Err(ApiError::Execution(
+                "scenario contains an invalid path or secret-like configuration".into(),
+            ));
+        }
+        let expected_hash = format!(
+            "sha256:{:x}",
+            Sha256::digest(
+                serde_json::to_vec(&scenario.config_snapshot).expect("config serializes")
+            )
+        );
+        if expected_hash != scenario.config_sha256 {
+            return Err(ApiError::Execution(
+                "scenario configuration hash does not match".into(),
+            ));
+        }
+    }
+    let repository = state.repository.ok_or(ApiError::Unavailable)?;
+    let imported = repository.import_project(&normalized_request).await?;
+    Ok((StatusCode::CREATED, Json(imported)))
+}
+
+fn contains_secret_key(value: &serde_json::Value) -> bool {
+    match value {
+        serde_json::Value::Object(map) => map.iter().any(|(key, child)| {
+            let key = key.to_ascii_lowercase();
+            ["secret", "password", "token", "cookie", "credential"]
+                .iter()
+                .any(|term| key.contains(term))
+                || contains_secret_key(child)
+        }),
+        serde_json::Value::Array(values) => values.iter().any(contains_secret_key),
+        _ => false,
+    }
+}
+
+#[cfg(test)]
+mod registry_config_tests {
+    use super::contains_secret_key;
+    use serde_json::json;
+
+    #[test]
+    fn rejects_secret_like_configuration_keys() {
+        assert!(contains_secret_key(
+            &json!({"credentials": {"password": "redacted"}})
+        ));
+        assert!(contains_secret_key(&json!({"api_token": "redacted"})));
+        assert!(!contains_secret_key(
+            &json!({"headers": ["accept", "content-type"]})
+        ));
+    }
 }
 
 async fn list_environments(
