@@ -52,7 +52,10 @@ pub fn router(state: AppState) -> Router {
         .route("/health", get(health))
         .route("/api/v1/projects", get(list_projects))
         .route("/api/v1/projects", post(create_project))
-        .route("/api/v1/projects/{project_id}", get(get_project))
+        .route(
+            "/api/v1/projects/{project_id}",
+            get(get_project).patch(update_project),
+        )
         .route("/api/v1/projects/{project_id}/export", get(export_project))
         .route("/api/v1/projects/import", post(import_project))
         .route(
@@ -173,6 +176,13 @@ pub struct ScenarioSummary {
 
 #[derive(Debug, Deserialize)]
 pub struct CreateProjectRequest {
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateProjectRequest {
     pub name: String,
     #[serde(default)]
     pub description: String,
@@ -351,6 +361,20 @@ async fn get_project(
     let repository = state.repository.ok_or(ApiError::Unavailable)?;
     repository
         .get_project(project_id)
+        .await?
+        .map(Json)
+        .ok_or(ApiError::NotFound)
+}
+
+async fn update_project(
+    State(state): State<AppState>,
+    Path(project_id): Path<Uuid>,
+    Json(request): Json<UpdateProjectRequest>,
+) -> Result<Json<ProjectDetail>, ApiError> {
+    validate_name(&request.name)?;
+    let repository = state.repository.ok_or(ApiError::Unavailable)?;
+    repository
+        .update_project(project_id, &request.name, &request.description)
         .await?
         .map(Json)
         .ok_or(ApiError::NotFound)
