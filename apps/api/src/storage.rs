@@ -306,8 +306,20 @@ impl PgRepository {
         Ok(sqlx::query_as::<_, ScenarioSummary>("SELECT id, project_id, name, version, script_path, config_snapshot, config_sha256, secret_refs FROM scenarios WHERE project_id = $1 ORDER BY name, version").bind(project_id).fetch_all(&self.pool).await?)
     }
 
-    pub async fn list_runs(&self) -> Result<Vec<RunSummary>, StorageError> {
-        Ok(sqlx::query_as::<_, RunSummary>("SELECT id, status, TRUE AS synthetic_traffic, (report IS NOT NULL) AS report_available, created_at, started_at, finished_at, failure_reason FROM runs ORDER BY created_at DESC").fetch_all(&self.pool).await?)
+    pub async fn list_runs(
+        &self,
+        project_id: Option<uuid::Uuid>,
+        status: Option<&str>,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<RunSummary>, StorageError> {
+        Ok(sqlx::query_as::<_, RunSummary>("SELECT id, status, TRUE AS synthetic_traffic, (report IS NOT NULL) AS report_available, created_at, started_at, finished_at, failure_reason FROM runs WHERE ($1::uuid IS NULL OR project_id = $1) AND ($2::text IS NULL OR status = $2) ORDER BY created_at DESC, id DESC LIMIT $3 OFFSET $4")
+            .bind(project_id)
+            .bind(status)
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(&self.pool)
+            .await?)
     }
 
     pub async fn get_run(
