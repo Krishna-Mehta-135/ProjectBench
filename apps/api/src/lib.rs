@@ -61,6 +61,10 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/projects/{project_id}/scenarios",
             get(list_scenarios).post(create_scenario),
         )
+        .route(
+            "/api/v1/projects/{project_id}/baselines",
+            get(get_baseline).post(select_baseline),
+        )
         .route("/api/v1/runs", get(list_runs))
         .route("/api/v1/runs", axum::routing::post(create_run))
         .route("/api/v1/runs/{run_id}", get(get_run))
@@ -180,6 +184,29 @@ pub struct CreateScenarioRequest {
 }
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct BaselineSummary {
+    pub project_id: Uuid,
+    pub environment_id: Uuid,
+    pub scenario_id: Uuid,
+    pub run_id: Uuid,
+    pub selected_at: chrono::DateTime<chrono::Utc>,
+    pub selected_by: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SelectBaselineRequest {
+    pub environment_id: Uuid,
+    pub scenario_id: Uuid,
+    pub run_id: Uuid,
+    #[serde(default = "default_operator")]
+    pub selected_by: String,
+}
+
+fn default_operator() -> String {
+    "operator".into()
+}
+
+#[derive(Debug, Serialize, sqlx::FromRow)]
 pub struct RunSummary {
     pub id: Uuid,
     pub status: String,
@@ -295,6 +322,37 @@ async fn list_scenarios(
 ) -> Result<Json<Vec<ScenarioSummary>>, ApiError> {
     let repository = state.repository.ok_or(ApiError::Unavailable)?;
     Ok(Json(repository.list_scenarios(project_id).await?))
+}
+
+async fn get_baseline(
+    State(state): State<AppState>,
+    Path(project_id): Path<Uuid>,
+) -> Result<Json<BaselineSummary>, ApiError> {
+    let repository = state.repository.ok_or(ApiError::Unavailable)?;
+    repository
+        .get_baseline(project_id)
+        .await?
+        .map(Json)
+        .ok_or(ApiError::NotFound)
+}
+
+async fn select_baseline(
+    State(state): State<AppState>,
+    Path(project_id): Path<Uuid>,
+    Json(request): Json<SelectBaselineRequest>,
+) -> Result<Json<BaselineSummary>, ApiError> {
+    let repository = state.repository.ok_or(ApiError::Unavailable)?;
+    Ok(Json(
+        repository
+            .select_baseline(
+                project_id,
+                request.environment_id,
+                request.scenario_id,
+                request.run_id,
+                &request.selected_by,
+            )
+            .await?,
+    ))
 }
 
 async fn create_scenario(
