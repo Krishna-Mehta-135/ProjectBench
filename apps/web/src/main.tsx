@@ -93,7 +93,26 @@ function App() {
       <div className="panel history-list"><div><p className="eyebrow">RUN HISTORY</p><h2>{runs.length} recorded run{runs.length === 1 ? "" : "s"}</h2><p>Every run is synthetic k6 evidence with a retained status and report reference.</p></div><div className="run-list">{runs.slice(0, 10).map((run) => <button className={`run-row ${selectedRunId === run.id ? "selected" : ""}`} key={run.id} onClick={() => setSelectedRunId(run.id)}><span><strong>{run.status}</strong><small>{run.id.slice(0, 8)} · {run.synthetic_traffic ? "synthetic" : "unknown"}</small></span><span className={run.report_available ? "ready" : "muted"}>{run.report_available ? "Report ready" : "No report"}</span></button>)}</div></div>
       <div className="panel report-panel"><p className="eyebrow">REPORT DETAIL</p>{runLoading && <p>Loading report…</p>}{runError && <div className="error-copy"><h2>Run action unavailable</h2><p>{runError}</p></div>}{!runLoading && !runError && selectedRun && <ReportDetail run={selectedRun} canceling={canceling} onCancel={cancelSelectedRun} />}</div>
     </section>}
+    {!loading && !error && <ComparisonPanel runs={runs} />}
   </main>;
+}
+
+function ComparisonPanel({ runs }: { runs: RunSummary[] }) {
+  const completed = runs.filter((run) => run.report_available);
+  const [baselineId, setBaselineId] = useState("");
+  const [candidateId, setCandidateId] = useState("");
+  const [comparison, setComparison] = useState<import("./api").CompareResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!baselineId && completed[1]) setBaselineId(completed[1].id);
+    if (!candidateId && completed[0]) setCandidateId(completed[0].id);
+  }, [completed, baselineId, candidateId]);
+  useEffect(() => {
+    if (!baselineId || !candidateId || baselineId === candidateId) return;
+    api.compare(baselineId, candidateId).then(setComparison).catch((cause: Error) => setError(cause.message));
+  }, [baselineId, candidateId]);
+  if (completed.length < 2) return <section className="panel"><p className="eyebrow">COMPARE</p><h2>Comparison needs two reports</h2><p>Run two completed measurements before comparing. Missing reports are not treated as zero.</p></section>;
+  return <section className="panel comparison"><p className="eyebrow">COMPARE EVIDENCE</p><h2>Baseline versus candidate</h2><div className="compare-selects"><label>Baseline<select value={baselineId} onChange={(event) => setBaselineId(event.target.value)}>{completed.map((run) => <option key={run.id} value={run.id}>{run.id.slice(0, 8)} · {run.created_at}</option>)}</select></label><label>Candidate<select value={candidateId} onChange={(event) => setCandidateId(event.target.value)}>{completed.map((run) => <option key={run.id} value={run.id}>{run.id.slice(0, 8)} · {run.created_at}</option>)}</select></label></div>{error && <p className="error-copy">{error}</p>}{comparison && <><p className={comparison.compatible ? "pass" : "fail"}>{comparison.compatible ? "Compatible comparison" : "Exploratory comparison only"}</p>{comparison.incompatibility_reasons.length > 0 && <ul>{comparison.incompatibility_reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul>}<div className="table-wrap"><table><caption>Metric deltas; positive values are candidate minus baseline</caption><thead><tr><th scope="col">Metric</th><th scope="col">Baseline</th><th scope="col">Candidate</th><th scope="col">Absolute</th><th scope="col">Relative</th></tr></thead><tbody>{comparison.metrics.map((metric) => <tr key={metric.name}><th scope="row">{metric.name}</th><td>{metric.baseline ?? "—"}</td><td>{metric.candidate ?? "—"}</td><td>{metric.absolute?.toFixed(3) ?? "—"}</td><td>{metric.relative_percent === null ? "—" : `${metric.relative_percent.toFixed(2)}%`}</td></tr>)}</tbody></table></div>{comparison.limitations.map((limitation) => <p className="muted" key={limitation}>{limitation}</p>)}</>}</section>;
 }
 
 function ReportDetail({ run, canceling, onCancel }: { run: RunDetail; canceling: boolean; onCancel: () => Promise<void> }) {
