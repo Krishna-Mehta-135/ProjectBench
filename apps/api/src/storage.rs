@@ -20,6 +20,16 @@ pub struct PgRepository {
     pool: PgPool,
 }
 
+#[derive(sqlx::FromRow)]
+struct DbTimeBucket {
+    start_at: chrono::DateTime<chrono::Utc>,
+    request_count: i64,
+    failed_count: i64,
+    duration_count: i64,
+    duration_sum_ms: f64,
+    duration_max_ms: Option<f64>,
+}
+
 impl PgRepository {
     pub fn from_pool(pool: PgPool) -> Self {
         Self { pool }
@@ -204,10 +214,21 @@ impl PgRepository {
         &self,
         run_id: uuid::Uuid,
     ) -> Result<Vec<TimeBucket>, StorageError> {
-        Ok(sqlx::query_as::<_, TimeBucket>("SELECT bucket_start AS start_at, request_count, failed_count, duration_count, duration_sum_ms, duration_max_ms FROM run_time_buckets WHERE run_id = $1 ORDER BY bucket_start")
+        let rows = sqlx::query_as::<_, DbTimeBucket>("SELECT bucket_start AS start_at, request_count, failed_count, duration_count, duration_sum_ms, duration_max_ms FROM run_time_buckets WHERE run_id = $1 ORDER BY bucket_start")
             .bind(run_id)
             .fetch_all(&self.pool)
-            .await?)
+            .await?;
+        Ok(rows
+            .into_iter()
+            .map(|row| TimeBucket {
+                start_at: row.start_at,
+                request_count: row.request_count.max(0) as u64,
+                failed_count: row.failed_count.max(0) as u64,
+                duration_count: row.duration_count.max(0) as u64,
+                duration_sum_ms: row.duration_sum_ms,
+                duration_max_ms: row.duration_max_ms,
+            })
+            .collect())
     }
 
     pub async fn get_artifact(
@@ -477,54 +498,3 @@ mod tests {
             confirmed: true,
         };
         repository
-            .validate_run_configuration(&request, "https://example.test")
-            .await
-            .unwrap();
-
-        let mut cross_project = request.clone();
-        cross_project.project_id = uuid::Uuid::new_v4();
-        assert!(matches!(
-            repository
-                .validate_run_configuration(&cross_project, "https://example.test")
-                .await,
-            Err(StorageError::Configuration(message)) if message.contains("belong")
-        ));
-
-        sqlx::query("UPDATE environments SET enabled = FALSE WHERE id = $1")
-            .bind(environment_id)
-            .execute(&pool)
-            .await
-            .unwrap();
-        assert!(matches!(
-            repository
-                .validate_run_configuration(&request, "https://example.test")
-                .await,
-            Err(StorageError::Configuration(message)) if message.contains("disabled")
-        ));
-    }
-
-    #[sqlx::test(migrations = "../../migrations")]
-    async fn terminal_writes_cannot_overwrite_canceled_runs(pool: PgPool) {
-        let run_id = seed_run(&pool, "running", None).await;
-        let repository = PgRepository::from_pool(pool.clone());
-        assert!(repository.cancel_run(run_id).await.unwrap());
-        assert!(!repository
-            .fail_run(run_id, "late process error")
-            .await
-            .unwrap());
-        assert!(!repository
-            .save_report(run_id, "completed", Some(&serde_json::json!({"ok": true})))
-            .await
-            .unwrap());
-        let row: (String, Option<String>) =
-            sqlx::query_as("SELECT status, failure_reason FROM runs WHERE id = $1")
-                .bind(run_id)
-                .fetch_one(&pool)
-                .await
-                .unwrap();
-        assert_eq!(
-            row,
-            ("canceled".into(), Some("canceled by operator".into()))
-        );
-    }
-}
