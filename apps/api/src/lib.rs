@@ -12,7 +12,7 @@ use axum::{
     extract::{Path, State},
     http::{header, HeaderValue, StatusCode},
     response::IntoResponse,
-    routing::get,
+    routing::{get, post},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
@@ -47,6 +47,16 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health))
         .route("/api/v1/projects", get(list_projects))
+        .route("/api/v1/projects", post(create_project))
+        .route("/api/v1/projects/{project_id}", get(get_project))
+        .route(
+            "/api/v1/projects/{project_id}/environments",
+            get(list_environments).post(create_environment),
+        )
+        .route(
+            "/api/v1/projects/{project_id}/scenarios",
+            get(list_scenarios).post(create_scenario),
+        )
         .route("/api/v1/runs", get(list_runs))
         .route("/api/v1/runs", axum::routing::post(create_run))
         .route("/api/v1/runs/{run_id}", get(get_run))
@@ -78,6 +88,59 @@ pub struct ProjectSummary {
     pub name: String,
     pub environment: String,
     pub latest_run_id: Option<Uuid>,
+}
+
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct ProjectDetail {
+    pub id: Uuid,
+    pub name: String,
+    pub description: String,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct EnvironmentSummary {
+    pub id: Uuid,
+    pub project_id: Uuid,
+    pub name: String,
+    pub base_url: String,
+    pub allowed_origins: serde_json::Value,
+    pub enabled: bool,
+}
+
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct ScenarioSummary {
+    pub id: Uuid,
+    pub project_id: Uuid,
+    pub name: String,
+    pub version: String,
+    pub script_path: String,
+    pub config_snapshot: serde_json::Value,
+    pub config_sha256: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateProjectRequest {
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateEnvironmentRequest {
+    pub name: String,
+    pub base_url: String,
+    pub allowed_origins: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateScenarioRequest {
+    pub name: String,
+    pub version: String,
+    pub script_path: String,
+    #[serde(default)]
+    pub config_snapshot: serde_json::Value,
 }
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
@@ -132,6 +195,124 @@ async fn list_projects(
         Some(repository) => Ok(Json(repository.list_projects().await?)),
         None => Ok(Json(Vec::new())),
     }
+}
+
+async fn create_project(
+    State(state): State<AppState>,
+    Json(request): Json<CreateProjectRequest>,
+) -> Result<(StatusCode, Json<ProjectDetail>), ApiError> {
+    validate_name(&request.name)?;
+    let repository = state.repository.ok_or(ApiError::Unavailable)?;
+    let project = repository
+        .create_project(&request.name, &request.description)
+        .await?;
+    Ok((StatusCode::CREATED, Json(project)))
+}
+
+async fn get_project(
+    State(state): State<AppState>,
+    Path(project_id): Path<Uuid>,
+) -> Result<Json<ProjectDetail>, ApiError> {
+    let repository = state.repository.ok_or(ApiError::Unavailable)?;
+    repository
+        .get_project(project_id)
+        .await?
+        .map(Json)
+        .ok_or(ApiError::NotFound)
+}
+
+async fn list_environments(
+    State(state): State<AppState>,
+    Path(project_id): Path<Uuid>,
+) -> Result<Json<Vec<EnvironmentSummary>>, ApiError> {
+    let repository = state.repository.ok_or(ApiError::Unavailable)?;
+    Ok(Json(repository.list_environments(project_id).await?))
+}
+
+async fn create_environment(
+    State(state): State<AppState>,
+    Path(project_id): Path<Uuid>,
+    Json(request): Json<CreateEnvironmentRequest>,
+) -> Result<(StatusCode, Json<EnvironmentSummary>), ApiError> {
+    validate_name(&request.name)?;
+    let base_url = normalize_origin(&request.base_url)?;
+    if request.allowed_origins.is_empty() {
+        return Err(ApiError::Policy(PolicyError::EmptyScenario));
+    }
+    let mut allowed = Vec::with_capacity(request.allowed_origins.len());
+    for origin in request.allowed_origins {
+        allowed.push(normalize_origin(&origin)?);
+    }
+    if !allowed.iter().any(|origin| origin == &base_url) {
+        return Err(ApiError::Policy(PolicyError::TargetNotAllowlisted));
+    }
+    let repository = state.repository.ok_or(ApiError::Unavailable)?;
+    let environment = repository
+        .create_environment(project_id, &request.name, &base_url, &allowed)
+        .await?;
+    Ok((StatusCode::CREATED, Json(environment)))
+}
+
+async fn list_scenarios(
+    State(state): State<AppState>,
+    Path(project_id): Path<Uuid>,
+) -> Result<Json<Vec<ScenarioSummary>>, ApiError> {
+    let repository = state.repository.ok_or(ApiError::Unavailable)?;
+    Ok(Json(repository.list_scenarios(project_id).await?))
+}
+
+async fn create_scenario(
+    State(state): State<AppState>,
+    Path(project_id): Path<Uuid>,
+    Json(request): Json<CreateScenarioRequest>,
+) -> Result<(StatusCode, Json<ScenarioSummary>), ApiError> {
+    validate_name(&request.name)?;
+    if request.version.trim().is_empty()
+        || request.script_path.trim().is_empty()
+        || request.script_path.contains("..")
+        || request.script_path.starts_with('/')
+    {
+        return Err(ApiError::Policy(PolicyError::EmptyScenario));
+    }
+    let config_sha256 = format!(
+        "sha256:{:x}",
+        Sha256::digest(serde_json::to_vec(&request.config_snapshot).expect("config serializes"))
+    );
+    let repository = state.repository.ok_or(ApiError::Unavailable)?;
+    let scenario = repository
+        .create_scenario(
+            project_id,
+            &request.name,
+            &request.version,
+            &request.script_path,
+            &request.config_snapshot,
+            &config_sha256,
+        )
+        .await?;
+    Ok((StatusCode::CREATED, Json(scenario)))
+}
+
+fn validate_name(name: &str) -> Result<(), ApiError> {
+    let trimmed = name.trim();
+    if trimmed.is_empty() || trimmed.len() > 120 {
+        return Err(ApiError::Policy(PolicyError::EmptyScenario));
+    }
+    Ok(())
+}
+
+fn normalize_origin(value: &str) -> Result<String, ApiError> {
+    let parsed = Url::parse(value).map_err(|_| ApiError::Policy(PolicyError::InvalidOrigin))?;
+    if parsed.scheme() != "https"
+        || parsed.host_str().is_none()
+        || parsed.path() != "/"
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+        || parsed.query().is_some()
+        || parsed.fragment().is_some()
+    {
+        return Err(ApiError::Policy(PolicyError::InvalidOrigin));
+    }
+    Ok(parsed.origin().ascii_serialization())
 }
 
 async fn list_runs(State(state): State<AppState>) -> Result<Json<Vec<RunSummary>>, ApiError> {
