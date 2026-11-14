@@ -73,6 +73,7 @@ pub fn router(state: AppState) -> Router {
             axum::routing::post(cancel_run),
         )
         .route("/api/v1/runs/{run_id}/report", get(get_report))
+        .route("/api/v1/runs/{run_id}/timeseries", get(get_time_series))
         .route("/api/v1/runs/{run_id}/artifacts", get(list_artifacts))
         .route(
             "/api/v1/runs/{run_id}/artifacts/{kind}",
@@ -411,6 +412,17 @@ async fn get_report(
         .await?
         .map(Json)
         .ok_or(ApiError::NotFound)
+}
+
+async fn get_time_series(
+    State(state): State<AppState>,
+    Path(run_id): Path<Uuid>,
+) -> Result<Json<Vec<timeseries::TimeBucket>>, ApiError> {
+    let repository = state.repository.ok_or(ApiError::NotFound)?;
+    if repository.get_run(run_id).await?.is_none() {
+        return Err(ApiError::NotFound);
+    }
+    Ok(Json(repository.list_time_buckets(run_id).await?))
 }
 
 async fn list_artifacts(
