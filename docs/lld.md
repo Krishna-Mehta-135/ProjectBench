@@ -13,10 +13,11 @@
 1. A run stores a scenario snapshot and SHA-256 hash at creation time.
 2. A report identifies its target origin, workload, UTC window, metric definitions, and limitations.
 3. A target must be HTTPS, have no path, and match an explicit allowlist entry.
-4. Failed, canceled, or partial runs are retained and cannot be presented as passing runs.
-5. Secrets never enter scenario files, report JSON, logs, or Git.
-6. Run acquisition is an atomic queued-to-running transition; a run cannot be acquired twice.
-7. Lifecycle timestamps are server-owned UTC values; failure reasons contain no command or secret material.
+4. Run creation rebinds the target and scenario to the persisted project/environment/scenario records; caller-supplied IDs and snapshots cannot cross project boundaries or select a disabled environment.
+5. Failed, canceled, or partial runs are retained and cannot be presented as passing runs.
+6. Secrets never enter scenario files, report JSON, logs, or Git.
+7. Run acquisition is an atomic queued-to-running transition; a run cannot be acquired twice.
+8. Lifecycle timestamps are server-owned UTC values; failure reasons contain no command or secret material.
 
 ## Extension points
 
