@@ -307,7 +307,7 @@ async fn execute_run(
         if matches!(&error, runner::RunnerError::Canceled) {
             repository.cancel_run(run_id).await?;
         } else {
-            let _ = repository.fail_run(run_id, &error.to_string()).await?;
+            repository.fail_run(run_id, &error.to_string()).await?;
         }
         return Err(ApiError::Execution(error.to_string()));
     }
