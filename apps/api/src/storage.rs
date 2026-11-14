@@ -1,4 +1,7 @@
-use crate::{EnvironmentSummary, ProjectDetail, ProjectSummary, RunSummary, ScenarioSummary};
+use crate::{
+    timeseries::TimeBucket, EnvironmentSummary, ProjectDetail, ProjectSummary, RunSummary,
+    ScenarioSummary,
+};
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use thiserror::Error;
 
@@ -169,6 +172,32 @@ impl PgRepository {
         .bind(run_id)
         .fetch_all(&self.pool)
         .await?)
+    }
+
+    pub async fn replace_time_buckets(
+        &self,
+        run_id: uuid::Uuid,
+        buckets: &[TimeBucket],
+    ) -> Result<(), StorageError> {
+        let mut transaction = self.pool.begin().await?;
+        sqlx::query("DELETE FROM run_time_buckets WHERE run_id = $1")
+            .bind(run_id)
+            .execute(&mut *transaction)
+            .await?;
+        for bucket in buckets {
+            sqlx::query("INSERT INTO run_time_buckets (run_id, bucket_start, request_count, failed_count, duration_count, duration_sum_ms, duration_max_ms) VALUES ($1, $2, $3, $4, $5, $6, $7)")
+                .bind(run_id)
+                .bind(bucket.start_at)
+                .bind(bucket.request_count as i64)
+                .bind(bucket.failed_count as i64)
+                .bind(bucket.duration_count as i64)
+                .bind(bucket.duration_sum_ms)
+                .bind(bucket.duration_max_ms)
+                .execute(&mut *transaction)
+                .await?;
+        }
+        transaction.commit().await?;
+        Ok(())
     }
 
     pub async fn get_artifact(
