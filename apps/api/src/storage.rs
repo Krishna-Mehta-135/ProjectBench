@@ -200,6 +200,16 @@ impl PgRepository {
         Ok(())
     }
 
+    pub async fn list_time_buckets(
+        &self,
+        run_id: uuid::Uuid,
+    ) -> Result<Vec<TimeBucket>, StorageError> {
+        Ok(sqlx::query_as::<_, TimeBucket>("SELECT bucket_start AS start_at, request_count, failed_count, duration_count, duration_sum_ms, duration_max_ms FROM run_time_buckets WHERE run_id = $1 ORDER BY bucket_start")
+            .bind(run_id)
+            .fetch_all(&self.pool)
+            .await?)
+    }
+
     pub async fn get_artifact(
         &self,
         run_id: uuid::Uuid,
