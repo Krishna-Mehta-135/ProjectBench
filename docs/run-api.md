@@ -6,7 +6,7 @@
 
 ## Create
 
-`POST /api/v1/runs` accepts the same scenario and workload plus project, environment, and scenario IDs. The request must contain `confirmed: true`. The API validates the request again and persists a queued run with an immutable scenario snapshot and hash.
+`POST /api/v1/runs` accepts the same scenario and workload plus project, environment, and scenario IDs. The request must contain `confirmed: true`. The API validates the request again, then proves that the enabled environment and immutable scenario version belong to the selected project, that the normalized target is in the environment's persisted origin allowlist, and that the supplied scenario identity matches the stored version before persisting a queued run.
 
 The response contains the run ID and `queued` status. Execution is a separate orchestration step, so a browser retry cannot accidentally start multiple k6 processes.
 
