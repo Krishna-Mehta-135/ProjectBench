@@ -17,6 +17,7 @@ button:disabled { opacity:.55; cursor:not-allowed; } .error { border-color:#a868
 .run-form label { display:grid; gap:.35rem; color:#b8c2d8; }
 .run-form select, .run-form input, .run-form textarea { background:#0b151b; border:1px solid #36514d; color:#eefaf6; border-radius:.7rem; padding:.72rem .8rem; font:inherit; outline:none; } .run-form textarea { min-height:92px; resize:vertical; } .run-form select:focus,.run-form input:focus,.run-form textarea:focus { border-color:#8ef0c4; box-shadow:0 0 0 3px #8ef0c422; }
 .registry,.access-panel { align-items:stretch; } .preflight { border:1px solid #5b9e8b; background:#102c26; border-radius:14px; padding:14px 16px; } .preflight strong { color:#8ef0c4; }
+.safety-gate { border-color:#b89a54; background:#2b2413; } .safety-gate strong { color:#f5d58a; }
 .form-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:1rem; }
 @media (max-width: 700px) { .form-grid { grid-template-columns:1fr; } }
 .timeseries { margin-top: 1.5rem; }
