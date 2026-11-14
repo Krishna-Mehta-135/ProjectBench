@@ -283,6 +283,7 @@ async fn execute_run(
         summary_json: std::path::Path::new(&root).join(&summary_relative),
         vus: workload.vus,
         duration_seconds: workload.duration_seconds,
+        runtime_env: approved_runtime_env(&detail.target_origin, &workload),
     };
     let timeout_seconds = workload.duration_seconds + workload.think_time_seconds + 15;
     let (cancel_sender, cancel_receiver) = tokio::sync::watch::channel(false);
@@ -501,6 +502,29 @@ impl RunPolicy {
 pub fn scenario_hash(snapshot: &ScenarioSnapshot) -> String {
     let encoded = serde_json::to_vec(snapshot).expect("scenario snapshot is serializable");
     format!("sha256:{:x}", Sha256::digest(encoded))
+}
+
+fn approved_runtime_env(target_origin: &str, workload: &Workload) -> Vec<(String, String)> {
+    let mut values = vec![
+        ("TARGET_ORIGIN".into(), target_origin.into()),
+        ("VUS".into(), workload.vus.to_string()),
+        ("DURATION".into(), format!("{}s", workload.duration_seconds)),
+        (
+            "THINK_TIME_SECONDS".into(),
+            workload.think_time_seconds.to_string(),
+        ),
+    ];
+    for key in [
+        "TEST_ACCOUNT_EMAIL",
+        "TEST_ACCOUNT_PASSWORD",
+        "SEEDED_ROOM_ID",
+        "K6_FIXTURE_MODE",
+    ] {
+        if let Ok(value) = std::env::var(key) {
+            values.push((key.into(), value));
+        }
+    }
+    values
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

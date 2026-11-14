@@ -9,6 +9,7 @@ pub struct K6Request {
     pub summary_json: PathBuf,
     pub vus: u32,
     pub duration_seconds: u32,
+    pub runtime_env: Vec<(String, String)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,6 +58,8 @@ pub async fn execute(
         std::env::var_os("METRICS_K6_EXECUTABLE").unwrap_or_else(|| command.executable.into());
     let mut child = Command::new(executable)
         .args(command.args)
+        .env_clear()
+        .envs(request.runtime_env.iter().map(|(key, value)| (key, value)))
         .spawn()
         .map_err(RunnerError::Start)?;
     let status = tokio::select! {
@@ -93,6 +96,7 @@ mod tests {
             summary_json: "summary.json".into(),
             vus: 1,
             duration_seconds: 60,
+            runtime_env: vec![("TARGET_ORIGIN".into(), "https://local.test".into())],
         };
         let command = command_for(&request);
         assert_eq!(command.executable, "k6");
@@ -121,6 +125,7 @@ mod tests {
             summary_json: "summary.json".into(),
             vus: 1,
             duration_seconds: 1,
+            runtime_env: Vec::new(),
         };
         let command = command_for(&request);
         assert!(command.args.iter().any(|arg| arg == "$(touch compromised)"));
