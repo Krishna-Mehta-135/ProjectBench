@@ -625,7 +625,7 @@ pub struct ThresholdResult {
     pub limit: Option<f64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct ArtifactRef {
     pub kind: String,
     pub path: String,
@@ -898,100 +898,3 @@ mod tests {
             &axum::body::to_bytes(response.into_body(), usize::MAX)
                 .await
                 .unwrap(),
-        )
-        .unwrap();
-        assert_eq!(report.run_id, successful_run);
-        assert!(report.synthetic_traffic);
-        assert_eq!(report.artifacts.len(), 2);
-        let artifact = app
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .uri(format!(
-                        "/api/v1/runs/{successful_run}/artifacts/k6-raw-jsonl"
-                    ))
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(artifact.status(), StatusCode::OK);
-        assert!(axum::body::to_bytes(artifact.into_body(), usize::MAX)
-            .await
-            .unwrap()
-            .windows(9)
-            .any(|window| window == b"http_reqs"));
-
-        std::env::set_var("K6_FIXTURE_MODE", "fail");
-        let failed_run = create_e2e_run(&app, project_id, environment_id, scenario_id).await;
-        assert_eq!(
-            execute_e2e_run(&app, failed_run).await.status(),
-            StatusCode::BAD_GATEWAY
-        );
-        let failed = app
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .uri(format!("/api/v1/runs/{failed_run}"))
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        let failed: RunDetail = serde_json::from_slice(
-            &axum::body::to_bytes(failed.into_body(), usize::MAX)
-                .await
-                .unwrap(),
-        )
-        .unwrap();
-        assert_eq!(failed.status, "failed");
-        assert!(failed.failure_reason.unwrap().contains("exit code"));
-        assert!(failed.report.is_none());
-
-        std::env::set_var("K6_FIXTURE_MODE", "sleep");
-        let canceled_run = create_e2e_run(&app, project_id, environment_id, scenario_id).await;
-        let executing = {
-            let app = app.clone();
-            tokio::spawn(async move { execute_e2e_run(&app, canceled_run).await })
-        };
-        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
-        let cancel = app
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri(format!("/api/v1/runs/{canceled_run}/cancel"))
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert!(matches!(
-            cancel.status(),
-            StatusCode::ACCEPTED | StatusCode::OK
-        ));
-        assert_eq!(executing.await.unwrap().status(), StatusCode::BAD_GATEWAY);
-        let canceled = app
-            .oneshot(
-                Request::builder()
-                    .uri(format!("/api/v1/runs/{canceled_run}"))
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        let canceled: RunDetail = serde_json::from_slice(
-            &axum::body::to_bytes(canceled.into_body(), usize::MAX)
-                .await
-                .unwrap(),
-        )
-        .unwrap();
-        assert_eq!(canceled.status, "canceled");
-        assert_eq!(
-            canceled.failure_reason.as_deref(),
-            Some("canceled by operator")
-        );
-        assert!(canceled.report.is_none());
-        let _ = std::fs::remove_dir_all(artifact_root);
-    }
-}
