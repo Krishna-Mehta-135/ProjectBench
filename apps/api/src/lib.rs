@@ -10,8 +10,9 @@ pub mod storage;
 use axum::{
     body::Body,
     extract::{Path, State},
-    http::{header, HeaderValue, StatusCode},
-    response::IntoResponse,
+    http::{header, HeaderValue, Request, StatusCode},
+    middleware::{self, Next},
+    response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
 };
@@ -31,6 +32,7 @@ pub struct AppState {
     pub policy: Arc<RunPolicy>,
     pub repository: Option<Arc<storage::PgRepository>>,
     pub cancellations: Arc<Mutex<HashMap<Uuid, tokio::sync::watch::Sender<bool>>>>,
+    pub operator_token: Option<Arc<str>>,
 }
 
 impl AppState {
@@ -39,6 +41,7 @@ impl AppState {
             policy: Arc::new(policy),
             repository,
             cancellations: Arc::new(Mutex::new(HashMap::new())),
+            operator_token: None,
         }
     }
 }
@@ -75,7 +78,38 @@ pub fn router(state: AppState) -> Router {
             get(download_artifact),
         )
         .route("/api/v1/runs/preflight", axum::routing::post(preflight))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            require_operator,
+        ))
         .with_state(state)
+}
+
+async fn require_operator(
+    State(state): State<AppState>,
+    request: Request<Body>,
+    next: Next,
+) -> Response {
+    let path = request.uri().path();
+    if state.operator_token.is_none() || path == "/health" {
+        return next.run(request).await;
+    }
+    let authorized = request
+        .headers()
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .is_some_and(|token| state.operator_token.as_deref() == Some(token));
+    if authorized {
+        next.run(request).await
+    } else {
+        (
+            StatusCode::UNAUTHORIZED,
+            [(header::WWW_AUTHENTICATE, "Bearer")],
+            Json(serde_json::json!({"error": "operator authentication required"})),
+        )
+            .into_response()
+    }
 }
 
 async fn health() -> impl IntoResponse {
@@ -866,7 +900,12 @@ pub async fn serve(addr: SocketAddr) -> anyhow::Result<()> {
         )),
         Err(_) => None,
     };
-    axum::serve(listener, router(AppState::new(policy, repository))).await?;
+    let mut state = AppState::new(policy, repository);
+    state.operator_token = std::env::var("METRICS_OPERATOR_TOKEN")
+        .ok()
+        .filter(|token| !token.trim().is_empty())
+        .map(Arc::<str>::from);
+    axum::serve(listener, router(state)).await?;
     Ok(())
 }
 
