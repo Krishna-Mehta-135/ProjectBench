@@ -24,7 +24,7 @@ Execution acquisition is atomic. Only a queued run can be claimed; concurrent re
 
 ## Artifacts
 
-`GET /api/v1/runs/{run_id}/artifacts` lists the report's retained artifact references. `GET /api/v1/runs/{run_id}/artifacts/{kind}` streams a referenced summary or raw JSONL artifact. The API never accepts a caller-supplied filesystem path; it resolves the kind from the persisted report and applies the local artifact store's path-safety checks.
+`GET /api/v1/runs/{run_id}/artifacts` lists independently persisted artifact references, including usable partial files from failed or canceled runs. `GET /api/v1/runs/{run_id}/artifacts/{kind}` streams a referenced summary or raw JSONL artifact only after verifying its SHA-256 against metadata. The API never accepts a caller-supplied filesystem path; it resolves the kind from the artifact table and applies the local artifact store's path-safety checks.
 
 ## Lifecycle metadata
 
