@@ -76,6 +76,7 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/api/v1/runs", get(list_runs))
         .route("/api/v1/runs", axum::routing::post(create_run))
+        .route("/api/v1/audit-events", get(list_audit_events))
         .route("/api/v1/runs/{run_id}", get(get_run))
         .route(
             "/api/v1/runs/{baseline_id}/compare/{candidate_id}",
@@ -331,6 +332,16 @@ pub struct MetricDelta {
     pub relative_percent: Option<f64>,
 }
 
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct AuditEvent {
+    pub id: Uuid,
+    pub action: String,
+    pub resource_type: String,
+    pub resource_id: Option<Uuid>,
+    pub metadata: serde_json::Value,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
 type MetricExtractor = fn(&RunReport) -> Option<f64>;
 
 async fn list_projects(
@@ -350,6 +361,14 @@ async fn create_project(
     let repository = state.repository.ok_or(ApiError::Unavailable)?;
     let project = repository
         .create_project(&request.name, &request.description)
+        .await?;
+    repository
+        .record_audit_event(
+            "project.created",
+            "project",
+            Some(project.id),
+            &serde_json::json!({}),
+        )
         .await?;
     Ok((StatusCode::CREATED, Json(project)))
 }
@@ -373,11 +392,20 @@ async fn update_project(
 ) -> Result<Json<ProjectDetail>, ApiError> {
     validate_name(&request.name)?;
     let repository = state.repository.ok_or(ApiError::Unavailable)?;
-    repository
+    let project = repository
         .update_project(project_id, &request.name, &request.description)
         .await?
         .map(Json)
-        .ok_or(ApiError::NotFound)
+        .ok_or(ApiError::NotFound)?;
+    repository
+        .record_audit_event(
+            "project.updated",
+            "project",
+            Some(project.0.id),
+            &serde_json::json!({}),
+        )
+        .await?;
+    Ok(project)
 }
 
 async fn export_project(
@@ -447,7 +475,16 @@ async fn import_project(
         }
     }
     let repository = state.repository.ok_or(ApiError::Unavailable)?;
+    let schema_version = normalized_request.schema_version.clone();
     let imported = repository.import_project(&normalized_request).await?;
+    repository
+        .record_audit_event(
+            "project.imported",
+            "project",
+            None,
+            &serde_json::json!({"schema_version": schema_version}),
+        )
+        .await?;
     Ok((StatusCode::CREATED, Json(imported)))
 }
 
@@ -529,6 +566,14 @@ async fn create_environment(
     let environment = repository
         .create_environment(project_id, &request.name, &base_url, &allowed)
         .await?;
+    repository
+        .record_audit_event(
+            "environment.created",
+            "environment",
+            Some(environment.id),
+            &serde_json::json!({"enabled": environment.enabled}),
+        )
+        .await?;
     Ok((StatusCode::CREATED, Json(environment)))
 }
 
@@ -538,11 +583,20 @@ async fn update_environment(
     Json(request): Json<UpdateEnvironmentRequest>,
 ) -> Result<Json<EnvironmentSummary>, ApiError> {
     let repository = state.repository.ok_or(ApiError::Unavailable)?;
-    repository
+    let environment = repository
         .set_environment_enabled(project_id, environment_id, request.enabled)
         .await?
         .map(Json)
-        .ok_or(ApiError::NotFound)
+        .ok_or(ApiError::NotFound)?;
+    repository
+        .record_audit_event(
+            "environment.updated",
+            "environment",
+            Some(environment.0.id),
+            &serde_json::json!({"enabled": environment.0.enabled}),
+        )
+        .await?;
+    Ok(environment)
 }
 
 async fn list_scenarios(
@@ -614,6 +668,14 @@ async fn create_scenario(
             &request.secret_refs,
         )
         .await?;
+    repository
+        .record_audit_event(
+            "scenario.created",
+            "scenario",
+            Some(scenario.id),
+            &serde_json::json!({}),
+        )
+        .await?;
     Ok((StatusCode::CREATED, Json(scenario)))
 }
 
@@ -667,6 +729,14 @@ async fn create_run(
     let scenario_hash = scenario_hash(&request.scenario);
     let id = repository
         .create_queued_run(&request, &validated.target_origin, &scenario_hash)
+        .await?;
+    repository
+        .record_audit_event(
+            "run.created",
+            "run",
+            Some(id),
+            &serde_json::json!({"status": "queued"}),
+        )
         .await?;
     Ok((
         StatusCode::CREATED,
@@ -867,6 +937,14 @@ async fn execute_run(
     if !repository.acquire_queued_run(run_id).await? {
         return Err(ApiError::Conflict);
     }
+    repository
+        .record_audit_event(
+            "run.execution_started",
+            "run",
+            Some(run_id),
+            &serde_json::json!({}),
+        )
+        .await?;
     let root = std::env::var("ARTIFACT_ROOT").unwrap_or_else(|_| "artifacts".into());
     let run_dir = run_id.to_string();
     let relative_dir = std::path::Path::new(&run_dir);
@@ -1067,12 +1145,30 @@ async fn cancel_run(
         .cloned();
     if let Some(sender) = sender {
         sender.send(true).map_err(|_| ApiError::Conflict)?;
+        repository
+            .record_audit_event(
+                "run.cancel_requested",
+                "run",
+                Some(run_id),
+                &serde_json::json!({}),
+            )
+            .await?;
         return Ok(StatusCode::ACCEPTED);
     }
     if repository.cancel_run(run_id).await? {
+        repository
+            .record_audit_event("run.canceled", "run", Some(run_id), &serde_json::json!({}))
+            .await?;
         return Ok(StatusCode::OK);
     }
     Err(ApiError::Conflict)
+}
+
+async fn list_audit_events(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<AuditEvent>>, ApiError> {
+    let repository = state.repository.ok_or(ApiError::Unavailable)?;
+    Ok(Json(repository.list_audit_events().await?))
 }
 
 async fn preflight(
