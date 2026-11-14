@@ -50,6 +50,7 @@ impl AppState {
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health))
+        .route("/ready", get(ready))
         .route("/api/v1/projects", get(list_projects))
         .route("/api/v1/projects", post(create_project))
         .route(
@@ -115,7 +116,7 @@ async fn require_operator(
     next: Next,
 ) -> Response {
     let path = request.uri().path();
-    if state.operator_token.is_none() || path == "/health" {
+    if state.operator_token.is_none() || path == "/health" || path == "/ready" {
         return next.run(request).await;
     }
     let authorized = request
@@ -138,6 +139,24 @@ async fn require_operator(
 
 async fn health() -> impl IntoResponse {
     Json(serde_json::json!({"status": "ok"}))
+}
+
+async fn ready(State(state): State<AppState>) -> Response {
+    let Some(repository) = state.repository else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"status": "unready", "reason": "database is not configured"})),
+        )
+            .into_response();
+    };
+    match repository.ready().await {
+        Ok(()) => (StatusCode::OK, Json(serde_json::json!({"status": "ready"}))).into_response(),
+        Err(_) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"status": "unready", "reason": "database is unavailable"})),
+        )
+            .into_response(),
+    }
 }
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
