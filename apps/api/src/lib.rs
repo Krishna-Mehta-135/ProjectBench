@@ -17,6 +17,7 @@ use axum::{
     routing::{get, patch, post},
     Json, Router,
 };
+use tower_http::cors::{Any, CorsLayer};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
@@ -55,6 +56,14 @@ impl AppState {
 }
 
 pub fn router(state: AppState) -> Router {
+    let web_origin = std::env::var("METRICS_WEB_ORIGIN")
+        .unwrap_or_else(|_| "http://127.0.0.1:5173".into())
+        .parse::<HeaderValue>()
+        .expect("METRICS_WEB_ORIGIN must be a valid origin");
+    let cors = CorsLayer::new()
+        .allow_origin(web_origin)
+        .allow_methods(Any)
+        .allow_headers(Any);
     Router::new()
         .route("/health", get(health))
         .route("/ready", get(ready))
@@ -114,6 +123,7 @@ pub fn router(state: AppState) -> Router {
             state.clone(),
             require_operator,
         ))
+        .layer(cors)
         .with_state(state)
 }
 
