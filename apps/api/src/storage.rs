@@ -30,6 +30,18 @@ struct DbTimeBucket {
     duration_max_ms: Option<f64>,
 }
 
+#[derive(Debug, sqlx::FromRow)]
+pub struct CompareRunRecord {
+    pub project_id: uuid::Uuid,
+    pub environment_id: uuid::Uuid,
+    pub scenario_id: uuid::Uuid,
+    pub target_origin: String,
+    pub workload: serde_json::Value,
+    pub scenario_sha256: String,
+    pub status: String,
+    pub report: Option<serde_json::Value>,
+}
+
 impl PgRepository {
     pub fn from_pool(pool: PgPool) -> Self {
         Self { pool }
@@ -136,6 +148,23 @@ impl PgRepository {
         run_id: uuid::Uuid,
     ) -> Result<Option<crate::RunDetail>, StorageError> {
         Ok(sqlx::query_as::<_, crate::RunDetail>("SELECT id, status, target_origin, workload, scenario_snapshot, report, created_at, started_at, finished_at, failure_reason FROM runs WHERE id = $1").bind(run_id).fetch_optional(&self.pool).await?)
+    }
+
+    pub async fn get_compare_runs(
+        &self,
+        baseline_id: uuid::Uuid,
+        candidate_id: uuid::Uuid,
+    ) -> Result<Option<(CompareRunRecord, CompareRunRecord)>, StorageError> {
+        let query = "SELECT project_id, environment_id, scenario_id, target_origin, workload, scenario_sha256, status, report FROM runs WHERE id = $1";
+        let baseline = sqlx::query_as::<_, CompareRunRecord>(query)
+            .bind(baseline_id)
+            .fetch_optional(&self.pool)
+            .await?;
+        let candidate = sqlx::query_as::<_, CompareRunRecord>(query)
+            .bind(candidate_id)
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(baseline.zip(candidate))
     }
 
     pub async fn get_report(

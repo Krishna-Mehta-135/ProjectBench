@@ -69,6 +69,10 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/runs", axum::routing::post(create_run))
         .route("/api/v1/runs/{run_id}", get(get_run))
         .route(
+            "/api/v1/runs/{baseline_id}/compare/{candidate_id}",
+            get(compare_runs),
+        )
+        .route(
             "/api/v1/runs/{run_id}/execute",
             axum::routing::post(execute_run),
         )
@@ -250,6 +254,27 @@ pub struct CreatedRun {
     pub scenario_hash: String,
     pub synthetic_traffic: bool,
 }
+
+#[derive(Debug, Serialize)]
+pub struct CompareResponse {
+    pub baseline_run_id: Uuid,
+    pub candidate_run_id: Uuid,
+    pub compatible: bool,
+    pub incompatibility_reasons: Vec<String>,
+    pub metrics: Vec<MetricDelta>,
+    pub limitations: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MetricDelta {
+    pub name: String,
+    pub baseline: Option<f64>,
+    pub candidate: Option<f64>,
+    pub absolute: Option<f64>,
+    pub relative_percent: Option<f64>,
+}
+
+type MetricExtractor = fn(&RunReport) -> Option<f64>;
 
 async fn list_projects(
     State(state): State<AppState>,
@@ -458,6 +483,98 @@ async fn get_run(
         .await?
         .map(Json)
         .ok_or(ApiError::NotFound)
+}
+
+async fn compare_runs(
+    State(state): State<AppState>,
+    Path((baseline_id, candidate_id)): Path<(Uuid, Uuid)>,
+) -> Result<Json<CompareResponse>, ApiError> {
+    let repository = state.repository.ok_or(ApiError::Unavailable)?;
+    let (baseline, candidate) = repository
+        .get_compare_runs(baseline_id, candidate_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+    let mut reasons = Vec::new();
+    if baseline.status != "completed" {
+        reasons.push("baseline run is not completed".into());
+    }
+    if candidate.status != "completed" {
+        reasons.push("candidate run is not completed".into());
+    }
+    if baseline.project_id != candidate.project_id {
+        reasons.push("runs belong to different projects".into());
+    }
+    if baseline.environment_id != candidate.environment_id {
+        reasons.push("runs belong to different environments".into());
+    }
+    if baseline.scenario_id != candidate.scenario_id
+        || baseline.scenario_sha256 != candidate.scenario_sha256
+    {
+        reasons.push("runs use different scenario versions".into());
+    }
+    if baseline.target_origin != candidate.target_origin {
+        reasons.push("runs target different origins".into());
+    }
+    if baseline.workload != candidate.workload {
+        reasons.push("runs use different workloads".into());
+    }
+    let baseline_report = baseline
+        .report
+        .as_ref()
+        .and_then(|value| serde_json::from_value::<RunReport>(value.clone()).ok());
+    let candidate_report = candidate
+        .report
+        .as_ref()
+        .and_then(|value| serde_json::from_value::<RunReport>(value.clone()).ok());
+    let metric_names: [(&str, MetricExtractor); 6] = [
+        ("p50_ms", |report: &RunReport| report.metrics.p50_ms),
+        ("p90_ms", |report: &RunReport| report.metrics.p90_ms),
+        ("p95_ms", |report: &RunReport| report.metrics.p95_ms),
+        ("p99_ms", |report: &RunReport| report.metrics.p99_ms),
+        ("throughput_per_second", |report: &RunReport| {
+            Some(report.metrics.throughput_per_second)
+        }),
+        ("error_rate", |report: &RunReport| {
+            Some(report.metrics.error_rate)
+        }),
+    ];
+    let metrics = metric_names
+        .into_iter()
+        .map(|(name, value)| {
+            let base = baseline_report.as_ref().and_then(value);
+            let candidate_value = candidate_report.as_ref().and_then(value);
+            let absolute = base
+                .zip(candidate_value)
+                .map(|(base, candidate)| candidate - base);
+            let relative_percent = base.zip(candidate_value).and_then(|(base, candidate)| {
+                (base != 0.0).then_some((candidate - base) / base * 100.0)
+            });
+            MetricDelta {
+                name: name.into(),
+                baseline: base,
+                candidate: candidate_value,
+                absolute,
+                relative_percent,
+            }
+        })
+        .collect();
+    let mut limitations = vec![
+        "Deltas are descriptive and do not establish statistical significance.".into(),
+        "Missing metrics remain null; a zero baseline has no relative percentage.".into(),
+    ];
+    if baseline_report.is_none() || candidate_report.is_none() {
+        reasons.push("both runs must contain readable reports".into());
+        limitations
+            .push("At least one report could not be decoded as the current report schema.".into());
+    }
+    Ok(Json(CompareResponse {
+        baseline_run_id: baseline_id,
+        candidate_run_id: candidate_id,
+        compatible: reasons.is_empty(),
+        incompatibility_reasons: reasons,
+        metrics,
+        limitations,
+    }))
 }
 
 async fn get_report(
