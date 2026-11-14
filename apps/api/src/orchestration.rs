@@ -70,6 +70,7 @@ mod tests {
                 version: "1".into(),
                 script_path: "fake.js".into(),
                 routes: vec!["GET /health".into()],
+                secret_refs: Vec::new(),
             },
             workload: Workload {
                 vus: 1,
