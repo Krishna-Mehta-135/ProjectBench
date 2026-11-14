@@ -59,6 +59,53 @@ impl PgRepository {
         .flatten())
     }
 
+    pub async fn register_artifact(
+        &self,
+        run_id: uuid::Uuid,
+        kind: &str,
+        path: &str,
+        sha256: &str,
+        size_bytes: i64,
+        partial: bool,
+    ) -> Result<(), StorageError> {
+        sqlx::query("INSERT INTO run_artifacts (run_id, kind, path, sha256, size_bytes, partial, created_at) VALUES ($1, $2, $3, $4, $5, $6, NOW()) ON CONFLICT (run_id, kind) DO UPDATE SET path = EXCLUDED.path, sha256 = EXCLUDED.sha256, size_bytes = EXCLUDED.size_bytes, partial = EXCLUDED.partial")
+            .bind(run_id)
+            .bind(kind)
+            .bind(path)
+            .bind(sha256)
+            .bind(size_bytes)
+            .bind(partial)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn list_artifacts(
+        &self,
+        run_id: uuid::Uuid,
+    ) -> Result<Vec<crate::ArtifactRef>, StorageError> {
+        Ok(sqlx::query_as::<_, crate::ArtifactRef>(
+            "SELECT kind, path, sha256 FROM run_artifacts WHERE run_id = $1 ORDER BY kind",
+        )
+        .bind(run_id)
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
+    pub async fn get_artifact(
+        &self,
+        run_id: uuid::Uuid,
+        kind: &str,
+    ) -> Result<Option<crate::ArtifactRef>, StorageError> {
+        Ok(sqlx::query_as::<_, crate::ArtifactRef>(
+            "SELECT kind, path, sha256 FROM run_artifacts WHERE run_id = $1 AND kind = $2",
+        )
+        .bind(run_id)
+        .bind(kind)
+        .fetch_optional(&self.pool)
+        .await?)
+    }
+
     pub async fn create_queued_run(
         &self,
         request: &crate::CreateRunRequest,
