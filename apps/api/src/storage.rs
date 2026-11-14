@@ -212,6 +212,7 @@ impl PgRepository {
         Ok(sqlx::query_as::<_, EnvironmentSummary>("SELECT id, project_id, name, base_url, allowed_origins, enabled FROM environments WHERE project_id = $1 ORDER BY name").bind(project_id).fetch_all(&self.pool).await?)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn create_scenario(
         &self,
         project_id: uuid::Uuid,
