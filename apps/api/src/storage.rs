@@ -231,6 +231,68 @@ impl PgRepository {
             .collect())
     }
 
+    pub async fn get_baseline(
+        &self,
+        project_id: uuid::Uuid,
+    ) -> Result<Option<crate::BaselineSummary>, StorageError> {
+        Ok(sqlx::query_as::<_, crate::BaselineSummary>("SELECT project_id, environment_id, scenario_id, run_id, selected_at, selected_by FROM baselines WHERE project_id = $1")
+            .bind(project_id)
+            .fetch_optional(&self.pool)
+            .await?)
+    }
+
+    pub async fn select_baseline(
+        &self,
+        project_id: uuid::Uuid,
+        environment_id: uuid::Uuid,
+        scenario_id: uuid::Uuid,
+        run_id: uuid::Uuid,
+        selected_by: &str,
+    ) -> Result<crate::BaselineSummary, StorageError> {
+        let run = sqlx::query_as::<_, (uuid::Uuid, uuid::Uuid, uuid::Uuid, String, bool)>(
+            "SELECT project_id, environment_id, scenario_id, status, report IS NOT NULL FROM runs WHERE id = $1",
+        )
+        .bind(run_id)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or_else(|| StorageError::Configuration("run does not exist".into()))?;
+        if run.0 != project_id || run.1 != environment_id || run.2 != scenario_id {
+            return Err(StorageError::Configuration(
+                "run identity does not match the requested baseline scope".into(),
+            ));
+        }
+        if run.3 != "completed" || !run.4 {
+            return Err(StorageError::Configuration(
+                "only completed runs with reports can become baselines".into(),
+            ));
+        }
+        let mut transaction = self.pool.begin().await?;
+        let now = chrono::Utc::now();
+        sqlx::query("INSERT INTO baseline_history (id, project_id, environment_id, scenario_id, run_id, selected_at, selected_by) VALUES ($1, $2, $3, $4, $5, $6, $7)")
+            .bind(uuid::Uuid::new_v4())
+            .bind(project_id)
+            .bind(environment_id)
+            .bind(scenario_id)
+            .bind(run_id)
+            .bind(now)
+            .bind(selected_by)
+            .execute(&mut *transaction)
+            .await?;
+        sqlx::query("INSERT INTO baselines (project_id, environment_id, scenario_id, run_id, selected_at, selected_by) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (project_id, environment_id, scenario_id) DO UPDATE SET run_id = EXCLUDED.run_id, selected_at = EXCLUDED.selected_at, selected_by = EXCLUDED.selected_by")
+            .bind(project_id)
+            .bind(environment_id)
+            .bind(scenario_id)
+            .bind(run_id)
+            .bind(now)
+            .bind(selected_by)
+            .execute(&mut *transaction)
+            .await?;
+        transaction.commit().await?;
+        self.get_baseline(project_id).await?.ok_or_else(|| {
+            StorageError::Configuration("selected baseline could not be loaded".into())
+        })
+    }
+
     pub async fn get_artifact(
         &self,
         run_id: uuid::Uuid,
