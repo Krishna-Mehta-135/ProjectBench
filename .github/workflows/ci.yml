@@ -49,6 +49,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      # npm ci is intentionally paired with the committed apps/web/package-lock.json.
       - run: npm ci --no-audit --no-fund
       - run: npm run build
       - run: npm test -- --run
