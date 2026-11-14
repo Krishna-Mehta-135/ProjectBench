@@ -45,6 +45,10 @@ Restore into a disposable stack first, then start the API so SQLx applies additi
 
 The API `/health` endpoint is a liveness probe. Database connectivity and migrations are validated during startup; a process that cannot connect or migrate exits rather than presenting a ready control plane.
 
+## Nonsecret configuration transfer
+
+Registry definitions can be exported from `GET /api/v1/projects/{id}/export` and imported with `POST /api/v1/projects/import`. The document contains only project metadata, HTTPS origin allowlists, scenario paths, route/config snapshots, and hashes; it must not contain passwords, tokens, cookies, or customer data. Import creates a new project identity transactionally and rejects invalid origins, traversal paths, duplicate versions, secret-like keys, or mismatched config hashes. A successful import still requires operator review of the target, credentials, seeded data, workload, and stop criteria before any live run.
+
 ## Resource and logging controls
 
 Run the API as a non-root container user in a production image, place PostgreSQL and the artifact volume on private networks/storage, cap CPU/memory and concurrent runs at the deployment layer, and send only redacted application logs to a central sink. Never put `METRICS_OPERATOR_TOKEN`, runtime credentials, cookies, or raw customer content in logs or backups without an approved retention policy.
