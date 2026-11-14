@@ -495,40 +495,50 @@ async fn execute_run(
         .lock()
         .expect("cancellation registry is not poisoned")
         .insert(run_id, cancel_sender);
-    if let Err(error) = runner::execute(
+    let measured_start_at = chrono::Utc::now();
+    let runner_result = runner::execute(
         &request,
         std::time::Duration::from_secs(timeout_seconds as u64),
         cancel_receiver,
     )
-    .await
-    {
-        state
-            .cancellations
-            .lock()
-            .expect("cancellation registry is not poisoned")
-            .remove(&run_id);
-        let _ = record_artifact_if_present(
-            &repository,
-            std::path::Path::new(&root),
-            run_id,
-            "k6-raw-jsonl",
-            &raw_relative,
-        )
-        .await;
-        let _ = record_artifact_if_present(
-            &repository,
-            std::path::Path::new(&root),
-            run_id,
-            "k6-summary",
-            &summary_relative,
-        )
-        .await;
-        if matches!(&error, runner::RunnerError::Canceled) {
-            repository.cancel_run(run_id).await?;
+    .await;
+    let mut threshold_failure = None;
+    if let Err(error) = runner_result {
+        let summary_exists = matches!(
+            &error,
+            runner::RunnerError::NonZero(_) if request.summary_json.is_file()
+        );
+        if summary_exists {
+            threshold_failure = Some(error.to_string());
         } else {
-            repository.fail_run(run_id, &error.to_string()).await?;
+            state
+                .cancellations
+                .lock()
+                .expect("cancellation registry is not poisoned")
+                .remove(&run_id);
+            let _ = record_artifact_if_present(
+                &repository,
+                std::path::Path::new(&root),
+                run_id,
+                "k6-raw-jsonl",
+                &raw_relative,
+            )
+            .await;
+            let _ = record_artifact_if_present(
+                &repository,
+                std::path::Path::new(&root),
+                run_id,
+                "k6-summary",
+                &summary_relative,
+            )
+            .await;
+            if matches!(&error, runner::RunnerError::Canceled) {
+                repository.cancel_run(run_id).await?;
+            } else {
+                repository.fail_run(run_id, &error.to_string()).await?;
+            }
+            return Err(ApiError::Execution(error.to_string()));
         }
-        return Err(ApiError::Execution(error.to_string()));
     }
     state
         .cancellations
@@ -537,6 +547,7 @@ async fn execute_run(
         .remove(&run_id);
     let summary = std::fs::read_to_string(&request.summary_json)
         .map_err(|error| ApiError::Execution(error.to_string()))?;
+    let measured_finish_at = chrono::Utc::now();
     let raw = std::fs::read(&request.output_json)
         .map_err(|error| ApiError::Execution(error.to_string()))?;
     let store = artifacts::LocalArtifactStore::new(&root);
@@ -567,7 +578,7 @@ async fn execute_run(
         scenario,
         workload,
     };
-    let mut report = report::build_report(
+    let mut report = report::build_report_with_timing(
         &summary,
         RunStatus::Completed,
         preflight.target_origin.clone(),
@@ -578,6 +589,8 @@ async fn execute_run(
             path: summary_relative.display().to_string(),
             sha256: summary_hash,
         },
+        Some(measured_start_at),
+        Some(measured_finish_at),
     )
     .map_err(|error| ApiError::Execution(error.to_string()))?;
     report.run_id = run_id;
@@ -586,6 +599,12 @@ async fn execute_run(
         path: raw_relative.display().to_string(),
         sha256: raw_hash,
     });
+    if let Some(reason) = threshold_failure {
+        report.execution_outcome = "threshold_failed".into();
+        report.limitations.push(format!(
+            "k6 exited nonzero after producing a measured summary: {reason}"
+        ));
+    }
     let report_json =
         serde_json::to_value(&report).map_err(|error| ApiError::Execution(error.to_string()))?;
     if !repository
@@ -819,6 +838,18 @@ pub struct RunReport {
     pub thresholds: Vec<ThresholdResult>,
     pub artifacts: Vec<ArtifactRef>,
     pub limitations: Vec<String>,
+    #[serde(default)]
+    pub measured_start_at: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(default)]
+    pub measured_finish_at: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(default)]
+    pub elapsed_seconds: Option<f64>,
+    #[serde(default = "default_execution_outcome")]
+    pub execution_outcome: String,
+}
+
+fn default_execution_outcome() -> String {
+    "measured".into()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
