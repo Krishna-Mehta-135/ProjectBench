@@ -202,13 +202,7 @@ async fn list_artifacts(
     Path(run_id): Path<Uuid>,
 ) -> Result<Json<Vec<ArtifactRef>>, ApiError> {
     let repository = state.repository.ok_or(ApiError::NotFound)?;
-    let report = repository
-        .get_report(run_id)
-        .await?
-        .ok_or(ApiError::NotFound)?;
-    let report: RunReport =
-        serde_json::from_value(report).map_err(|error| ApiError::Execution(error.to_string()))?;
-    Ok(Json(report.artifacts))
+    Ok(Json(repository.list_artifacts(run_id).await?))
 }
 
 async fn download_artifact(
@@ -216,28 +210,22 @@ async fn download_artifact(
     Path((run_id, kind)): Path<(Uuid, String)>,
 ) -> Result<axum::response::Response, ApiError> {
     let repository = state.repository.ok_or(ApiError::NotFound)?;
-    let report = repository
-        .get_report(run_id)
+    let artifact = repository
+        .get_artifact(run_id, &kind)
         .await?
         .ok_or(ApiError::NotFound)?;
-    let report: RunReport =
-        serde_json::from_value(report).map_err(|error| ApiError::Execution(error.to_string()))?;
-    let artifact = report
-        .artifacts
-        .iter()
-        .find(|artifact| artifact.kind == kind)
-        .ok_or(ApiError::NotFound)?;
     let root = std::env::var("ARTIFACT_ROOT").unwrap_or_else(|_| "artifacts".into());
-    let content =
-        match artifacts::LocalArtifactStore::new(root).read(std::path::Path::new(&artifact.path)) {
-            Ok(content) => content,
-            Err(artifacts::ArtifactError::Io(error))
-                if error.kind() == std::io::ErrorKind::NotFound =>
-            {
-                return Err(ApiError::NotFound);
-            }
-            Err(error) => return Err(ApiError::Artifact(error)),
-        };
+    let content = match artifacts::LocalArtifactStore::new(root)
+        .read_verified(std::path::Path::new(&artifact.path), &artifact.sha256)
+    {
+        Ok(content) => content,
+        Err(artifacts::ArtifactError::Io(error))
+            if error.kind() == std::io::ErrorKind::NotFound =>
+        {
+            return Err(ApiError::NotFound);
+        }
+        Err(error) => return Err(ApiError::Artifact(error)),
+    };
     let content_type = if artifact.kind.ends_with("json") || artifact.kind == "k6-summary" {
         "application/json"
     } else {
@@ -304,6 +292,22 @@ async fn execute_run(
             .lock()
             .expect("cancellation registry is not poisoned")
             .remove(&run_id);
+        let _ = record_artifact_if_present(
+            &repository,
+            std::path::Path::new(&root),
+            run_id,
+            "k6-raw-jsonl",
+            &raw_relative,
+        )
+        .await;
+        let _ = record_artifact_if_present(
+            &repository,
+            std::path::Path::new(&root),
+            run_id,
+            "k6-summary",
+            &summary_relative,
+        )
+        .await;
         if matches!(&error, runner::RunnerError::Canceled) {
             repository.cancel_run(run_id).await?;
         } else {
@@ -323,6 +327,26 @@ async fn execute_run(
     let store = artifacts::LocalArtifactStore::new(&root);
     let raw_hash = store.put(&raw_relative, &raw)?;
     let summary_hash = store.put(&summary_relative, summary.as_bytes())?;
+    repository
+        .register_artifact(
+            run_id,
+            "k6-raw-jsonl",
+            &raw_relative.display().to_string(),
+            &raw_hash,
+            raw.len() as i64,
+            false,
+        )
+        .await?;
+    repository
+        .register_artifact(
+            run_id,
+            "k6-summary",
+            &summary_relative.display().to_string(),
+            &summary_hash,
+            summary.len() as i64,
+            false,
+        )
+        .await?;
     let preflight = PreflightRequest {
         target_origin: detail.target_origin,
         scenario,
@@ -356,6 +380,33 @@ async fn execute_run(
         return Err(ApiError::Conflict);
     }
     Ok(Json(report))
+}
+
+async fn record_artifact_if_present(
+    repository: &storage::PgRepository,
+    root: &std::path::Path,
+    run_id: Uuid,
+    kind: &str,
+    relative_path: &std::path::Path,
+) -> Result<(), ApiError> {
+    let absolute = root.join(relative_path);
+    let content = match std::fs::read(&absolute) {
+        Ok(content) => content,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(ApiError::Execution(error.to_string())),
+    };
+    let hash = format!("sha256:{:x}", Sha256::digest(&content));
+    repository
+        .register_artifact(
+            run_id,
+            kind,
+            &relative_path.display().to_string(),
+            &hash,
+            content.len() as i64,
+            true,
+        )
+        .await?;
+    Ok(())
 }
 
 async fn cancel_run(
