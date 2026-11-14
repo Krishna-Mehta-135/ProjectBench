@@ -47,7 +47,7 @@ The API `/health` endpoint is a liveness probe. Database connectivity and migrat
 
 ## Nonsecret configuration transfer
 
-Registry definitions can be exported from `GET /api/v1/projects/{id}/export` and imported with `POST /api/v1/projects/import`. The document contains only project metadata, HTTPS origin allowlists, scenario paths, route/config snapshots, and hashes; it must not contain passwords, tokens, cookies, or customer data. Import creates a new project identity transactionally and rejects invalid origins, traversal paths, duplicate versions, secret-like keys, or mismatched config hashes. A successful import still requires operator review of the target, credentials, seeded data, workload, and stop criteria before any live run.
+Registry definitions can be exported from `GET /api/v1/projects/{id}/export` and imported with `POST /api/v1/projects/import`. The document contains only project metadata, HTTPS origin allowlists, scenario paths, route/config snapshots, and hashes; it must not contain passwords, tokens, cookies, or customer data. Import creates a new project identity transactionally and rejects invalid origins, traversal paths, secret-like keys, or mismatched config hashes. A successful import still requires operator review of the target, credentials, seeded data, workload, and stop criteria before any live run.
 
 ## Resource and logging controls
 
