@@ -21,4 +21,6 @@ These tests use database fixtures only. They do not start k6 against Canvassync,
 
 The API test `fake_k6_covers_success_failure_cancellation_and_artifacts` drives the real HTTP routes with disposable PostgreSQL and the fixture executable. It verifies a successful report and both terminal non-passing paths: retained runner failure and explicit cancellation. The fixture writes deterministic raw JSONL and summary JSON, and its failure/sleep modes are local process controls only.
 
+The illustrative `k6/scenarios/canvassync-room-read.js` journey fails closed when required runtime inputs are missing, accepts only an HTTPS origin, disables redirects, checks that responses remain on that origin, and issues only the sign-in plus read-only room routes. CI does not execute it against Canvassync; the application owner must confirm the actual route/auth contract and provide a reviewed target before any live run.
+
 The test also verifies that the report's run ID matches the persisted run and that raw artifacts are retrieved through the persisted artifact reference rather than a caller-supplied path.
