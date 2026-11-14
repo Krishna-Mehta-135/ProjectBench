@@ -4,6 +4,8 @@ export type ProjectSummary = {
   environment: string;
   latest_run_id: string | null;
 };
+export type Environment = { id: string; project_id: string; name: string; base_url: string; allowed_origins: string[]; enabled: boolean };
+export type Scenario = { id: string; project_id: string; name: string; version: string; script_path: string; config_snapshot: { routes?: string[] }; config_sha256: string };
 
 export type RunSummary = {
   id: string;
@@ -65,6 +67,8 @@ async function get<T>(path: string): Promise<T> {
 
 export const api = {
   projects: () => get<ProjectSummary[]>("/api/v1/projects"),
+  environments: (projectId: string) => get<Environment[]>(`/api/v1/projects/${projectId}/environments`),
+  scenarios: (projectId: string) => get<Scenario[]>(`/api/v1/projects/${projectId}/scenarios`),
   runs: () => get<RunSummary[]>("/api/v1/runs"),
   run: (id: string) => get<RunDetail>(`/api/v1/runs/${id}`),
   artifactUrl: (id: string, kind: string) => `${apiOrigin}/api/v1/runs/${id}/artifacts/${encodeURIComponent(kind)}`,
@@ -75,6 +79,10 @@ export const api = {
   },
   cancelRun: async (id: string) => {
     const response = await fetch(`${apiOrigin}/api/v1/runs/${id}/cancel`, { method: "POST" });
+    if (!response.ok) throw new Error(`Metrics API returned ${response.status}`);
+  },
+  executeRun: async (id: string) => {
+    const response = await fetch(`${apiOrigin}/api/v1/runs/${id}/execute`, { method: "POST" });
     if (!response.ok) throw new Error(`Metrics API returned ${response.status}`);
   },
 };
