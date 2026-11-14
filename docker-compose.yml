@@ -7,6 +7,11 @@ services:
       POSTGRES_PASSWORD: metrics-local-only
     ports: ["5432:5432"]
     volumes: [metrics-postgres:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U metrics -d metrics"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   api:
     build:
@@ -14,9 +19,15 @@ services:
       dockerfile: apps/api/Dockerfile
     environment:
       DATABASE_URL: postgres://metrics:metrics-local-only@postgres:5432/metrics
+      ARTIFACT_ROOT: /var/lib/metrics/artifacts
+      METRICS_OPERATOR_TOKEN: ${METRICS_OPERATOR_TOKEN:-}
     ports: ["8080:8080"]
-    depends_on: [postgres]
+    volumes: [metrics-artifacts:/var/lib/metrics/artifacts]
+    depends_on:
+      postgres:
+        condition: service_healthy
 
 volumes:
   metrics-postgres:
+  metrics-artifacts:
 
