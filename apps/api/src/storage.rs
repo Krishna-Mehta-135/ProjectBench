@@ -75,6 +75,11 @@ impl PgRepository {
         Ok(Self { pool })
     }
 
+    pub async fn ready(&self) -> Result<(), StorageError> {
+        sqlx::query("SELECT 1").execute(&self.pool).await?;
+        Ok(())
+    }
+
     pub async fn list_projects(&self) -> Result<Vec<ProjectSummary>, StorageError> {
         Ok(sqlx::query_as::<_, ProjectSummary>("SELECT p.id, p.name, COALESCE((SELECT e.name FROM environments e WHERE e.project_id = p.id AND e.enabled ORDER BY e.name LIMIT 1), '') AS environment, (SELECT r.id FROM runs r WHERE r.project_id = p.id ORDER BY r.created_at DESC LIMIT 1) AS latest_run_id FROM projects p ORDER BY p.name").fetch_all(&self.pool).await?)
     }
