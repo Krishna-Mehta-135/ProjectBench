@@ -74,7 +74,7 @@ jobs:
           pwd
           ls -l package.json package-lock.json
           npm config get package-lock
-          npm ci --no-audit --no-fund
+          npm ci --package-lock=true --no-audit --no-fund
       - run: |
           cd "$GITHUB_WORKSPACE/apps/web"
           npm run build
