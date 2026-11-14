@@ -66,9 +66,16 @@ jobs:
           cache: npm
           cache-dependency-path: apps/web/package-lock.json
       - name: Verify web lockfile
-        run: test -s package-lock.json
-        working-directory: apps/web
-      - run: npm ci --prefix "$GITHUB_WORKSPACE/apps/web" --no-audit --no-fund
-      - run: npm --prefix "$GITHUB_WORKSPACE/apps/web" run build
-      - run: npm --prefix "$GITHUB_WORKSPACE/apps/web" test -- --run
+        run: |
+          cd "$GITHUB_WORKSPACE/apps/web"
+          test -s package-lock.json
+      - run: |
+          cd "$GITHUB_WORKSPACE/apps/web"
+          npm ci --no-audit --no-fund
+      - run: |
+          cd "$GITHUB_WORKSPACE/apps/web"
+          npm run build
+      - run: |
+          cd "$GITHUB_WORKSPACE/apps/web"
+          npm test -- --run
 
