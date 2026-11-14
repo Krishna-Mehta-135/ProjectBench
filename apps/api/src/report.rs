@@ -56,6 +56,28 @@ pub fn build_report(
     workload: Workload,
     artifact: ArtifactRef,
 ) -> Result<RunReport, ReportError> {
+    build_report_with_timing(
+        summary_json,
+        status,
+        target_origin,
+        scenario,
+        workload,
+        artifact,
+        None,
+        None,
+    )
+}
+
+pub fn build_report_with_timing(
+    summary_json: &str,
+    status: RunStatus,
+    target_origin: String,
+    scenario: ScenarioSnapshot,
+    workload: Workload,
+    artifact: ArtifactRef,
+    measured_start_at: Option<chrono::DateTime<chrono::Utc>>,
+    measured_finish_at: Option<chrono::DateTime<chrono::Utc>>,
+) -> Result<RunReport, ReportError> {
     let summary: K6Summary = serde_json::from_str(summary_json)?;
     if summary.metrics.http_reqs.value < 0.0 {
         return Err(ReportError::MissingMetrics);
@@ -72,6 +94,9 @@ pub fn build_report(
     };
     let error_rate = metrics.error_rate;
     let passed = matches!(status, RunStatus::Completed) && error_rate < 0.05;
+    let elapsed_seconds = measured_start_at
+        .zip(measured_finish_at)
+        .map(|(start, finish)| (finish - start).num_milliseconds().max(0) as f64 / 1000.0);
     Ok(RunReport {
         schema_version: "1.0".into(),
         run_id: Uuid::new_v4(),
@@ -91,6 +116,10 @@ pub fn build_report(
         limitations: vec![
             "Synthetic k6 traffic does not represent real users or browser rendering.".into(),
         ],
+        measured_start_at,
+        measured_finish_at,
+        elapsed_seconds,
+        execution_outcome: "measured".into(),
     })
 }
 
@@ -160,6 +189,30 @@ mod tests {
             artifact(),
         )
         .unwrap();
+        assert!(!report.thresholds[0].passed);
+    }
+
+    #[test]
+    fn timed_report_records_measured_window_and_explicit_outcome() {
+        let start = chrono::DateTime::parse_from_rfc3339("2026-01-01T00:00:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        let finish = start + chrono::Duration::milliseconds(1500);
+        let report = build_report_with_timing(
+            &summary(0.08),
+            RunStatus::Completed,
+            "https://local.test".into(),
+            scenario(),
+            workload(),
+            artifact(),
+            Some(start),
+            Some(finish),
+        )
+        .unwrap();
+        assert_eq!(report.elapsed_seconds, Some(1.5));
+        assert_eq!(report.measured_start_at, Some(start));
+        assert_eq!(report.measured_finish_at, Some(finish));
+        assert_eq!(report.execution_outcome, "measured");
         assert!(!report.thresholds[0].passed);
     }
 }
