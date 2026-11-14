@@ -28,5 +28,9 @@ Execution acquisition is atomic. Only a queued run can be claimed; concurrent re
 
 ## Lifecycle metadata
 
+## Environment controls
+
+`PATCH /api/v1/projects/{project_id}/environments/{environment_id}` accepts `{ "enabled": false }` to revoke an environment without editing PostgreSQL. The project scope is checked server-side and the updated registry record is returned. Disabling an environment prevents new run creation and causes queued execution to fail the policy revalidation before k6 starts; re-enable it only after the target and workload have been reviewed.
+
 Run list and detail responses include `created_at`, `started_at`, `finished_at`, and `failure_reason`. Timestamps are PostgreSQL UTC timestamps serialized as RFC 3339 values. Failure reasons are bounded operational messages; command lines, environment variables, and credentials are never returned.
 
