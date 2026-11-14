@@ -38,5 +38,7 @@ Execution acquisition is atomic. Only a queued run can be claimed; concurrent re
 
 `GET /api/v1/audit-events` returns the newest protected configuration and run-control events. Events contain only action names, resource IDs, safe status metadata, and UTC timestamps; bearer tokens, secret values, raw request bodies, and customer content are never stored. Retention should follow the deployment's approved operational policy.
 
+`GET /api/v1/runs/{run_id}/report/markdown` renders the persisted report as Markdown for review or sharing. It includes provenance, measured metrics, threshold outcomes, limitations, and artifact hashes, but never embeds raw JSONL, credentials, cookies, or customer content.
+
 Run list and detail responses include `created_at`, `started_at`, `finished_at`, and `failure_reason`. Timestamps are PostgreSQL UTC timestamps serialized as RFC 3339 values. Failure reasons are bounded operational messages; command lines, environment variables, and credentials are never returned.
 
