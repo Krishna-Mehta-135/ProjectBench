@@ -14,11 +14,11 @@ docker compose up -d postgres
 cargo run -p metrics-api
 ```
 
-The API binds to `127.0.0.1:8080`. The dashboard can be started separately with `cd apps/web && npm install && npm run dev`.
+The API binds to `0.0.0.0:8080` inside the container/process. The dashboard can be started separately with `cd apps/web && npm ci && npm run dev`.
 
 ## Database
 
-Apply `migrations/001_initial.sql` with the PostgreSQL client configured for the local database. Migration execution is deliberately separate from application startup until the migration runner is added.
+When `DATABASE_URL` is configured, the API applies the tracked SQLx migrations during startup. The Compose PostgreSQL service therefore only needs to be healthy before the API starts; do not apply the same migrations manually.
 
 ## Canvassync approval gate
 
