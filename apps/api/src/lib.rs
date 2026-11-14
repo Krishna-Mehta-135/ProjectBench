@@ -20,7 +20,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     net::SocketAddr,
     sync::{Arc, Mutex},
 };
@@ -164,6 +164,7 @@ pub struct ScenarioSummary {
     pub script_path: String,
     pub config_snapshot: serde_json::Value,
     pub config_sha256: String,
+    pub secret_refs: serde_json::Value,
 }
 
 #[derive(Debug, Deserialize)]
@@ -187,6 +188,8 @@ pub struct CreateScenarioRequest {
     pub script_path: String,
     #[serde(default)]
     pub config_snapshot: serde_json::Value,
+    #[serde(default)]
+    pub secret_refs: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -218,6 +221,8 @@ pub struct ScenarioConfig {
     pub script_path: String,
     pub config_snapshot: serde_json::Value,
     pub config_sha256: String,
+    #[serde(default)]
+    pub secret_refs: Vec<String>,
 }
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
@@ -385,6 +390,7 @@ async fn import_project(
     }
     for scenario in &normalized_request.scenarios {
         validate_name(&scenario.name)?;
+        validate_secret_refs(&scenario.secret_refs)?;
         if scenario.version.trim().is_empty()
             || scenario.script_path.trim().is_empty()
             || scenario.script_path.contains("..")
@@ -424,6 +430,24 @@ fn contains_secret_key(value: &serde_json::Value) -> bool {
         serde_json::Value::Array(values) => values.iter().any(contains_secret_key),
         _ => false,
     }
+}
+
+fn validate_secret_refs(secret_refs: &[String]) -> Result<(), ApiError> {
+    let mut unique = HashSet::new();
+    for secret_ref in secret_refs {
+        if secret_ref.is_empty()
+            || secret_ref.len() > 64
+            || !secret_ref
+                .bytes()
+                .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit() || byte == b'_')
+            || !unique.insert(secret_ref)
+        {
+            return Err(ApiError::Execution(
+                "secret references must be unique uppercase environment names".into(),
+            ));
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -527,6 +551,7 @@ async fn create_scenario(
     {
         return Err(ApiError::Policy(PolicyError::EmptyScenario));
     }
+    validate_secret_refs(&request.secret_refs)?;
     let config_sha256 = format!(
         "sha256:{:x}",
         Sha256::digest(serde_json::to_vec(&request.config_snapshot).expect("config serializes"))
@@ -540,6 +565,7 @@ async fn create_scenario(
             &request.script_path,
             &request.config_snapshot,
             &config_sha256,
+            &request.secret_refs,
         )
         .await?;
     Ok((StatusCode::CREATED, Json(scenario)))
@@ -809,7 +835,7 @@ async fn execute_run(
         summary_json: std::path::Path::new(&root).join(&summary_relative),
         vus: workload.vus,
         duration_seconds: workload.duration_seconds,
-        runtime_env: approved_runtime_env(&detail.target_origin, &workload),
+        runtime_env: approved_runtime_env(&detail.target_origin, &workload, &scenario.secret_refs),
     };
     let timeout_seconds = workload.duration_seconds + workload.think_time_seconds + 15;
     let (cancel_sender, cancel_receiver) = tokio::sync::watch::channel(false);
@@ -1037,6 +1063,8 @@ pub struct ScenarioSnapshot {
     pub version: String,
     pub script_path: String,
     pub routes: Vec<String>,
+    #[serde(default)]
+    pub secret_refs: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -1131,7 +1159,11 @@ pub fn scenario_hash(snapshot: &ScenarioSnapshot) -> String {
     format!("sha256:{:x}", Sha256::digest(encoded))
 }
 
-fn approved_runtime_env(target_origin: &str, workload: &Workload) -> Vec<(String, String)> {
+fn approved_runtime_env(
+    target_origin: &str,
+    workload: &Workload,
+    secret_refs: &[String],
+) -> Vec<(String, String)> {
     let mut values = vec![
         ("TARGET_ORIGIN".into(), target_origin.into()),
         ("VUS".into(), workload.vus.to_string()),
@@ -1141,14 +1173,12 @@ fn approved_runtime_env(target_origin: &str, workload: &Workload) -> Vec<(String
             workload.think_time_seconds.to_string(),
         ),
     ];
-    for key in [
-        "TEST_ACCOUNT_EMAIL",
-        "TEST_ACCOUNT_PASSWORD",
-        "SEEDED_ROOM_ID",
-        "K6_FIXTURE_MODE",
-    ] {
+    if let Ok(value) = std::env::var("K6_FIXTURE_MODE") {
+        values.push(("K6_FIXTURE_MODE".into(), value));
+    }
+    for key in secret_refs {
         if let Ok(value) = std::env::var(key) {
-            values.push((key.into(), value));
+            values.push((key.clone(), value));
         }
     }
     values
@@ -1303,6 +1333,11 @@ mod tests {
                 version: "1".into(),
                 script_path: "k6/scenarios/canvassync-room-read.js".into(),
                 routes: vec!["POST /api/v1/auth/signin".into()],
+                secret_refs: vec![
+                    "TEST_ACCOUNT_EMAIL".into(),
+                    "TEST_ACCOUNT_PASSWORD".into(),
+                    "SEEDED_ROOM_ID".into(),
+                ],
             },
             workload: Workload {
                 vus: 1,

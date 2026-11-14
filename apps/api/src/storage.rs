@@ -58,6 +58,7 @@ struct DbExecutionConfiguration {
     scenario_name: String,
     scenario_version: String,
     scenario_script_path: String,
+    scenario_secret_refs: serde_json::Value,
 }
 
 impl PgRepository {
@@ -134,6 +135,7 @@ impl PgRepository {
                     script_path: scenario.script_path,
                     config_snapshot: scenario.config_snapshot,
                     config_sha256: scenario.config_sha256,
+                    secret_refs: serde_json::from_value(scenario.secret_refs).unwrap_or_default(),
                 })
                 .collect(),
         }))
@@ -163,7 +165,7 @@ impl PgRepository {
                 .await?;
         }
         for scenario in &export.scenarios {
-            sqlx::query("INSERT INTO scenarios (id, project_id, name, version, script_path, config_snapshot, config_sha256, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())")
+            sqlx::query("INSERT INTO scenarios (id, project_id, name, version, script_path, config_snapshot, config_sha256, secret_refs, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())")
                 .bind(uuid::Uuid::new_v4())
                 .bind(project_id)
                 .bind(scenario.name.trim())
@@ -171,6 +173,7 @@ impl PgRepository {
                 .bind(&scenario.script_path)
                 .bind(&scenario.config_snapshot)
                 .bind(&scenario.config_sha256)
+                .bind(serde_json::to_value(&scenario.secret_refs).expect("secret refs serialize"))
                 .execute(&mut *transaction)
                 .await?;
         }
@@ -209,6 +212,7 @@ impl PgRepository {
         Ok(sqlx::query_as::<_, EnvironmentSummary>("SELECT id, project_id, name, base_url, allowed_origins, enabled FROM environments WHERE project_id = $1 ORDER BY name").bind(project_id).fetch_all(&self.pool).await?)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn create_scenario(
         &self,
         project_id: uuid::Uuid,
@@ -217,24 +221,25 @@ impl PgRepository {
         script_path: &str,
         config_snapshot: &serde_json::Value,
         config_sha256: &str,
+        secret_refs: &[String],
     ) -> Result<ScenarioSummary, StorageError> {
         let id = uuid::Uuid::new_v4();
-        sqlx::query("INSERT INTO scenarios (id, project_id, name, version, script_path, config_snapshot, config_sha256, created_at) SELECT $1, $2, $3, $4, $5, $6, $7, NOW() WHERE EXISTS (SELECT 1 FROM projects WHERE id = $2)")
-            .bind(id).bind(project_id).bind(name.trim()).bind(version.trim()).bind(script_path).bind(config_snapshot).bind(config_sha256).execute(&self.pool).await?;
+        sqlx::query("INSERT INTO scenarios (id, project_id, name, version, script_path, config_snapshot, config_sha256, secret_refs, created_at) SELECT $1, $2, $3, $4, $5, $6, $7, $8, NOW() WHERE EXISTS (SELECT 1 FROM projects WHERE id = $2)")
+            .bind(id).bind(project_id).bind(name.trim()).bind(version.trim()).bind(script_path).bind(config_snapshot).bind(config_sha256).bind(serde_json::to_value(secret_refs).expect("secret refs serialize")).execute(&self.pool).await?;
         self.get_scenario(id)
             .await?
             .ok_or_else(|| StorageError::Configuration("project does not exist".into()))
     }
 
     async fn get_scenario(&self, id: uuid::Uuid) -> Result<Option<ScenarioSummary>, StorageError> {
-        Ok(sqlx::query_as::<_, ScenarioSummary>("SELECT id, project_id, name, version, script_path, config_snapshot, config_sha256 FROM scenarios WHERE id = $1").bind(id).fetch_optional(&self.pool).await?)
+        Ok(sqlx::query_as::<_, ScenarioSummary>("SELECT id, project_id, name, version, script_path, config_snapshot, config_sha256, secret_refs FROM scenarios WHERE id = $1").bind(id).fetch_optional(&self.pool).await?)
     }
 
     pub async fn list_scenarios(
         &self,
         project_id: uuid::Uuid,
     ) -> Result<Vec<ScenarioSummary>, StorageError> {
-        Ok(sqlx::query_as::<_, ScenarioSummary>("SELECT id, project_id, name, version, script_path, config_snapshot, config_sha256 FROM scenarios WHERE project_id = $1 ORDER BY name, version").bind(project_id).fetch_all(&self.pool).await?)
+        Ok(sqlx::query_as::<_, ScenarioSummary>("SELECT id, project_id, name, version, script_path, config_snapshot, config_sha256, secret_refs FROM scenarios WHERE project_id = $1 ORDER BY name, version").bind(project_id).fetch_all(&self.pool).await?)
     }
 
     pub async fn list_runs(&self) -> Result<Vec<RunSummary>, StorageError> {
@@ -460,8 +465,8 @@ impl PgRepository {
         request: &crate::CreateRunRequest,
         target_origin: &str,
     ) -> Result<(), StorageError> {
-        let row = sqlx::query_as::<_, (uuid::Uuid, bool, serde_json::Value, uuid::Uuid, String, String, String)>(
-            "SELECT e.project_id, e.enabled, e.allowed_origins, s.project_id, s.name, s.version, s.script_path
+        let row = sqlx::query_as::<_, (uuid::Uuid, bool, serde_json::Value, uuid::Uuid, String, String, String, serde_json::Value)>(
+            "SELECT e.project_id, e.enabled, e.allowed_origins, s.project_id, s.name, s.version, s.script_path, s.secret_refs
              FROM environments e JOIN scenarios s ON s.id = $2
              WHERE e.id = $1",
         )
@@ -492,7 +497,17 @@ impl PgRepository {
         }
 
         let scenario = &request.scenario;
-        if scenario.name != row.4 || scenario.version != row.5 || scenario.script_path != row.6 {
+        let persisted_secret_refs: Vec<String> =
+            serde_json::from_value(row.7).map_err(|error| {
+                StorageError::Configuration(format!(
+                    "scenario secret references are invalid: {error}"
+                ))
+            })?;
+        if scenario.name != row.4
+            || scenario.version != row.5
+            || scenario.script_path != row.6
+            || scenario.secret_refs != persisted_secret_refs
+        {
             return Err(StorageError::Configuration(
                 "scenario snapshot does not match the persisted scenario version".into(),
             ));
@@ -510,7 +525,7 @@ impl PgRepository {
                     e.project_id AS environment_project_id, e.enabled AS environment_enabled,
                     e.allowed_origins, s.project_id AS scenario_project_id,
                     s.name AS scenario_name, s.version AS scenario_version,
-                    s.script_path AS scenario_script_path
+                    s.script_path AS scenario_script_path, s.secret_refs AS scenario_secret_refs
              FROM runs r
              JOIN environments e ON e.id = r.environment_id
              JOIN scenarios s ON s.id = r.scenario_id
@@ -553,6 +568,14 @@ impl PgRepository {
         if scenario.name != row.scenario_name
             || scenario.version != row.scenario_version
             || scenario.script_path != row.scenario_script_path
+            || scenario.secret_refs
+                != serde_json::from_value::<Vec<String>>(row.scenario_secret_refs).map_err(
+                    |error| {
+                        StorageError::Configuration(format!(
+                            "scenario secret references are invalid: {error}"
+                        ))
+                    },
+                )?
             || crate::scenario_hash(&scenario) != row.scenario_sha256
         {
             return Err(StorageError::Configuration(
@@ -743,6 +766,7 @@ mod tests {
                 version: "1".into(),
                 script_path: "scenario.js".into(),
                 routes: vec!["GET /health".into()],
+                secret_refs: Vec::new(),
             },
             workload: crate::Workload {
                 vus: 1,
