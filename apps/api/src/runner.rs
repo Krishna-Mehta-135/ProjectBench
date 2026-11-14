@@ -59,6 +59,9 @@ pub async fn execute(
     let mut child = Command::new(executable)
         .args(command.args)
         .env_clear()
+        // Keep the child hermetic while allowing k6 and POSIX helper scripts
+        // used by local fixtures to resolve their fixed system dependencies.
+        .env("PATH", "/usr/local/bin:/usr/bin:/bin")
         .envs(request.runtime_env.iter().map(|(key, value)| (key, value)))
         .spawn()
         .map_err(RunnerError::Start)?;

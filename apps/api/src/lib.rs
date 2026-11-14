@@ -1597,7 +1597,7 @@ impl IntoResponse for ApiError {
 
 pub async fn serve(addr: SocketAddr) -> anyhow::Result<()> {
     let policy = RunPolicy {
-        allowed_origins: vec!["https://api.canvassync.tech".into()],
+        allowed_origins: configured_allowed_origins(),
         max_vus: 10,
         max_duration_seconds: 300,
         max_runtime_seconds: 360,
@@ -1616,6 +1616,21 @@ pub async fn serve(addr: SocketAddr) -> anyhow::Result<()> {
         .map(Arc::<str>::from);
     axum::serve(listener, router(state)).await?;
     Ok(())
+}
+
+fn configured_allowed_origins() -> Vec<String> {
+    let configured = std::env::var("METRICS_ALLOWED_ORIGINS")
+        .ok()
+        .map(|value| {
+            value
+                .split(',')
+                .map(str::trim)
+                .filter(|origin| !origin.is_empty())
+                .map(str::to_owned)
+                .collect::<Vec<_>>()
+        })
+        .filter(|origins| !origins.is_empty());
+    configured.unwrap_or_else(|| vec!["https://api.canvassync.tech".into()])
 }
 
 #[cfg(test)]
