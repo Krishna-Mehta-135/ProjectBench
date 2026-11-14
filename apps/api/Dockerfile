@@ -1,8 +1,9 @@
 FROM rust:1.82-bookworm AS build
 WORKDIR /src
 COPY Cargo.toml Cargo.toml
+COPY Cargo.lock Cargo.lock
 COPY apps/api apps/api
-RUN cargo build --release -p metrics-api
+RUN cargo build --locked --release -p metrics-api
 
 FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
