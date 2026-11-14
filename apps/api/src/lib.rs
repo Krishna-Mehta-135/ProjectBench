@@ -150,14 +150,17 @@ async fn create_run(
         scenario: request.scenario.clone(),
         workload: request.workload.clone(),
     };
-    state.policy.validate(&preflight)?;
+    let validated = state.policy.validate(&preflight)?;
     if !request.confirmed {
         return Err(ApiError::ConfirmationRequired);
     }
     let repository = state.repository.ok_or(ApiError::Unavailable)?;
+    repository
+        .validate_run_configuration(&request, &validated.target_origin)
+        .await?;
     let scenario_hash = scenario_hash(&request.scenario);
     let id = repository
-        .create_queued_run(&request, &scenario_hash)
+        .create_queued_run(&request, &validated.target_origin, &scenario_hash)
         .await?;
     Ok((
         StatusCode::CREATED,
@@ -734,7 +737,7 @@ mod tests {
             .execute(pool)
             .await
             .unwrap();
-        sqlx::query("INSERT INTO environments (id, project_id, name, base_url, allowed_origins, created_at, updated_at) VALUES ($1, $2, 'local', 'https://api.canvassync.tech', '[]', $3, $3)")
+        sqlx::query("INSERT INTO environments (id, project_id, name, base_url, allowed_origins, created_at, updated_at) VALUES ($1, $2, 'local', 'https://api.canvassync.tech', '[\"https://api.canvassync.tech\"]', $3, $3)")
             .bind(environment_id)
             .bind(project_id)
             .bind(now)
