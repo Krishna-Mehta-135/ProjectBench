@@ -1,11 +1,9 @@
-# Metrics
+# ProjectBench
 
-Metrics is a project performance and observability platform for stress-testing Canvassync, Knowdex, and future applications. It turns repeatable k6 runs and application telemetry into comparable, shareable evidence about reliability and performance.
-
-See [PRD.md](PRD.md) for the product requirements and proposed implementation plan.
+ProjectBench turns an engineering claim into a reproducible experiment with a verdict and a public evidence page. The current implementation contains an early k6 run control plane; the claims-first work is tracked in [the week-one plan](docs/plan-v2-claims-first.md).
 
 ## Development
 
-The architecture and implementation boundaries are documented in [docs/hld.md](docs/hld.md), [docs/lld.md](docs/lld.md), and [docs/safety.md](docs/safety.md). Start the API locally with `cargo run -p metrics-api`; it binds to `127.0.0.1:8080` and exposes `/health` plus a guarded preflight endpoint.
+Run `cargo run -p metrics-api` to start the private API on `127.0.0.1:8080`. Set `METRICS_BIND_ADDR` to change the listener. A non-loopback address requires `METRICS_OPERATOR_TOKEN`.
 
-The first Canvassync profile is review-only. It requires runtime-injected credentials and a seeded room ID; no Azure load test is run by local development or CI.
+The existing k6 profile is review-only. Benchmarks must target local Docker Compose, never production sites.
