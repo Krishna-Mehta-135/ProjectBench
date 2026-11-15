@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { api, Environment, ProjectSummary, RunDetail, RunSummary, Scenario, TimeBucket } from "./api";
+import { api, Environment, ProjectSummary, RunDetail, RunSummary, Scenario, TimeBucket, BaselineSummary, PreflightResponse, setOperatorToken } from "./api";
 import { canCancelRun, formatRunStatus } from "./runPresentation";
 import "./style.css";
 
@@ -24,10 +24,27 @@ function App() {
   const [duration, setDuration] = useState(60);
   const [thinkTime, setThinkTime] = useState(2);
   const [creating, setCreating] = useState(false);
+  const [preflight, setPreflight] = useState<PreflightResponse | null>(null);
+  const [baselines, setBaselines] = useState<Record<string, BaselineSummary | null>>({});
+  const [showRegistry, setShowRegistry] = useState(false);
+  const [tokenDraft, setTokenDraft] = useState("");
+  const [needsToken, setNeedsToken] = useState(false);
 
   useEffect(() => {
-    Promise.all([api.projects(), api.runs()]).then(([projectData, runData]) => { setProjects(projectData); setRuns(runData); setSelectedRunId(runData[0]?.id ?? null); }).catch((cause: Error) => setError(cause.message)).finally(() => setLoading(false));
+    Promise.all([api.projects(), api.runs()]).then(async ([projectData, runData]) => {
+      setProjects(projectData); setRuns(runData); setSelectedRunId(runData[0]?.id ?? null);
+      const baselineEntries = await Promise.all(projectData.map(async (project) => [project.id, await api.baseline(project.id).catch(() => null)] as const));
+      setBaselines(Object.fromEntries(baselineEntries));
+      setNeedsToken(false);
+    }).catch((cause: Error) => { setError(cause.message); setNeedsToken(cause.message.includes("401")); }).finally(() => setLoading(false));
   }, []);
+
+  function applyOperatorToken(event: React.FormEvent) {
+    event.preventDefault();
+    setOperatorToken(tokenDraft);
+    setError(null); setLoading(true); setNeedsToken(false);
+    Promise.all([api.projects(), api.runs()]).then(([projectData, runData]) => { setProjects(projectData); setRuns(runData); setSelectedRunId(runData[0]?.id ?? null); }).catch((cause: Error) => { setError(cause.message); setNeedsToken(true); }).finally(() => setLoading(false));
+  }
 
   useEffect(() => {
     if (!selectedProjectId) return;
@@ -47,7 +64,11 @@ function App() {
     setCreating(true);
     setRunError(null);
     try {
-      const created = await api.createRun({ project_id: selectedProjectId, environment_id: environment.id, scenario_id: scenario.id, target_origin: environment.base_url, scenario: { name: scenario.name, version: scenario.version, script_path: scenario.script_path, routes: scenario.config_snapshot.routes ?? [] }, workload: { vus, duration_seconds: duration, think_time_seconds: thinkTime }, confirmed: true });
+      const snapshot = { name: scenario.name, version: scenario.version, script_path: scenario.script_path, routes: scenario.config_snapshot.routes ?? [], secret_refs: scenario.secret_refs };
+      const review = await api.preflight({ target_origin: environment.base_url, scenario: snapshot, workload: { vus, duration_seconds: duration, think_time_seconds: thinkTime } });
+      setPreflight(review);
+      if (!window.confirm(`Preflight approved for ${review.target_origin}. ${review.warnings.length ? `Warnings: ${review.warnings.join("; ")}` : "No warnings."} Start this synthetic run?`)) return;
+      const created = await api.createRun({ project_id: selectedProjectId, environment_id: environment.id, scenario_id: scenario.id, target_origin: environment.base_url, scenario: snapshot, workload: { vus, duration_seconds: duration, think_time_seconds: thinkTime }, confirmed: true });
       await api.executeRun(created.id);
       setShowNewRun(false);
       const updatedRuns = await api.runs();
@@ -82,19 +103,53 @@ function App() {
   }
 
   return <main className="shell">
-    <header><div><p className="eyebrow">METRICS / EVIDENCE</p><h1>Performance, with provenance.</h1><p className="lede">A private control plane for reproducible synthetic performance evidence.</p></div><button onClick={() => { setSelectedProjectId(projects[0]?.id ?? ""); setShowNewRun(true); }} disabled={loading || projects.length === 0}>New run</button></header>
+    <header><div><p className="eyebrow">METRICS / EVIDENCE</p><h1>Performance, with provenance.</h1><p className="lede">A private control plane for reproducible synthetic performance evidence.</p></div><div className="header-actions"><button onClick={() => setShowRegistry((value) => !value)}>{showRegistry ? "Hide setup" : "Configure targets"}</button><button onClick={() => { setSelectedProjectId(projects[0]?.id ?? ""); setShowNewRun(true); setPreflight(null); }} disabled={loading || projects.length === 0}>New run</button></div></header>
     <section className="notice"><strong>Synthetic traffic only.</strong> Results from k6 virtual users are not measurements of real users or browser rendering.</section>
+    {(needsToken || tokenDraft) && <section className="panel access-panel"><p className="eyebrow">OPERATOR ACCESS</p><h2>Connect to the private Metrics API</h2><p>Enter the operator token for this browser session. It stays in memory and is never bundled into the frontend.</p><form onSubmit={applyOperatorToken}><input type="password" value={tokenDraft} onChange={(event) => setTokenDraft(event.target.value)} placeholder="METRICS_OPERATOR_TOKEN" autoComplete="off"/><button type="submit">Connect</button></form></section>}
     {loading && <section className="panel"><p>Loading projects…</p></section>}
     {error && <section className="panel error"><h2>API unavailable</h2><p>{error}</p><p>Start the Rust API on <code>127.0.0.1:8080</code> to load project data.</p></section>}
     {!loading && !error && projects.length === 0 && <section className="panel"><div><p className="eyebrow">PROJECTS</p><h2>No projects configured</h2><p>Configure a project and environment before creating a run. Missing data is not treated as zero.</p></div></section>}
-    {!loading && !error && projects.length > 0 && <section className="grid">{projects.map((project) => <article key={project.id}><div className="card-head"><span className="dot"/><span>{project.environment}</span></div><h2>{project.name}</h2><p>{project.latest_run_id ? "Baseline available" : "No baseline yet"}</p><a href="#scenarios">View scenarios →</a></article>)}</section>}
-    {showNewRun && <section className="panel"><div><p className="eyebrow">NEW RUN</p><h2>Review effective workload</h2><form className="run-form" onSubmit={(event) => void createAndExecuteRun(event)}><label>Project<select value={selectedProjectId} onChange={(event) => setSelectedProjectId(event.target.value)}>{projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label><label>Environment<select value={selectedEnvironmentId} onChange={(event) => setSelectedEnvironmentId(event.target.value)}>{environments.map((environment) => <option key={environment.id} value={environment.id}>{environment.name} · {environment.base_url}</option>)}</select></label><label>Scenario<select value={selectedScenarioId} onChange={(event) => setSelectedScenarioId(event.target.value)}>{scenarios.map((scenario) => <option key={scenario.id} value={scenario.id}>{scenario.name} v{scenario.version}</option>)}</select></label><div className="form-grid"><label>VUs<input type="number" min="1" value={vus} onChange={(event) => setVus(Number(event.target.value))}/></label><label>Duration (s)<input type="number" min="1" value={duration} onChange={(event) => setDuration(Number(event.target.value))}/></label><label>Think time (s)<input type="number" min="0" value={thinkTime} onChange={(event) => setThinkTime(Number(event.target.value))}/></label></div><p className="muted">The server revalidates the target, scenario identity, routes, and workload caps before queueing.</p><div><button type="submit" disabled={creating || !selectedEnvironmentId || !selectedScenarioId}>{creating ? "Starting…" : "Confirm and start"}</button> <button type="button" onClick={() => setShowNewRun(false)}>Cancel</button></div></form></div></section>}
+    {!loading && !error && projects.length > 0 && <section className="grid">{projects.map((project) => <article key={project.id}><div className="card-head"><span className="dot"/><span>{project.environment}</span></div><h2>{project.name}</h2><p>{baselines[project.id] ? `Selected baseline ${baselines[project.id]!.run_id.slice(0, 8)}` : "No baseline selected"}</p><a href="#scenarios">View scenarios →</a></article>)}</section>}
+    {showRegistry && <RegistryPanel projects={projects} onChanged={() => window.location.reload()} />}
+    {showNewRun && <section className="panel"><div><p className="eyebrow">NEW RUN</p><h2>Review effective workload</h2><form className="run-form" onSubmit={(event) => void createAndExecuteRun(event)}><label>Project<select value={selectedProjectId} onChange={(event) => { setSelectedProjectId(event.target.value); setPreflight(null); }}>{projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label><label>Environment<select value={selectedEnvironmentId} onChange={(event) => { setSelectedEnvironmentId(event.target.value); setPreflight(null); }}>{environments.map((environment) => <option key={environment.id} value={environment.id}>{environment.name} · {environment.base_url}</option>)}</select></label>{environments.length === 0 && <div className="preflight safety-gate"><strong>Run blocked by safety gate</strong><p>This target has no enabled environment. Review the origin, account, seeded data, workload, hard stop, and rollback criteria before enabling it.</p></div>}<label>Scenario<select value={selectedScenarioId} onChange={(event) => { setSelectedScenarioId(event.target.value); setPreflight(null); }}>{scenarios.map((scenario) => <option key={scenario.id} value={scenario.id}>{scenario.name} v{scenario.version}</option>)}</select></label><div className="form-grid"><label>VUs<input type="number" min="1" value={vus} onChange={(event) => { setVus(Number(event.target.value)); setPreflight(null); }}/></label><label>Duration (s)<input type="number" min="1" value={duration} onChange={(event) => { setDuration(Number(event.target.value)); setPreflight(null); }}/></label><label>Think time (s)<input type="number" min="0" value={thinkTime} onChange={(event) => { setThinkTime(Number(event.target.value)); setPreflight(null); }}/></label></div><p className="muted">The server revalidates the target, scenario identity, routes, and workload caps before queueing.</p>{preflight && <div className="preflight"><strong>Preflight approved</strong><p>Target: <code>{preflight.target_origin}</code></p><p>Scenario hash: <code>{preflight.scenario_hash}</code></p><p>Hard stop: {preflight.workload.duration_seconds}s · {preflight.workload.vus} VUs</p>{preflight.warnings.length > 0 && <ul>{preflight.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>}</div>}<div><button type="submit" disabled={creating || !selectedEnvironmentId || !selectedScenarioId}>{creating ? "Starting…" : "Review preflight and start"}</button> <button type="button" onClick={() => setShowNewRun(false)}>Cancel</button></div></form></div></section>}
     {!loading && !error && runs.length > 0 && <section className="history-layout">
       <div className="panel history-list"><div><p className="eyebrow">RUN HISTORY</p><h2>{runs.length} recorded run{runs.length === 1 ? "" : "s"}</h2><p>Every run is synthetic k6 evidence with a retained status and report reference.</p></div><div className="run-list">{runs.slice(0, 10).map((run) => <button className={`run-row ${selectedRunId === run.id ? "selected" : ""}`} key={run.id} onClick={() => setSelectedRunId(run.id)}><span><strong>{run.status}</strong><small>{run.id.slice(0, 8)} · {run.synthetic_traffic ? "synthetic" : "unknown"}</small></span><span className={run.report_available ? "ready" : "muted"}>{run.report_available ? "Report ready" : "No report"}</span></button>)}</div></div>
       <div className="panel report-panel"><p className="eyebrow">REPORT DETAIL</p>{runLoading && <p>Loading report…</p>}{runError && <div className="error-copy"><h2>Run action unavailable</h2><p>{runError}</p></div>}{!runLoading && !runError && selectedRun && <ReportDetail run={selectedRun} canceling={canceling} onCancel={cancelSelectedRun} />}</div>
     </section>}
     {!loading && !error && <ComparisonPanel runs={runs} />}
   </main>;
+}
+
+function RegistryPanel({ projects, onChanged }: { projects: ProjectSummary[]; onChanged: () => void }) {
+  const [projectId, setProjectId] = useState(projects[0]?.id ?? "");
+  const [projectName, setProjectName] = useState("");
+  const [projectDescription, setProjectDescription] = useState("");
+  const [environmentName, setEnvironmentName] = useState("");
+  const [baseUrl, setBaseUrl] = useState("");
+  const [scenarioName, setScenarioName] = useState("");
+  const [scenarioVersion, setScenarioVersion] = useState("1");
+  const [scriptPath, setScriptPath] = useState("");
+  const [routes, setRoutes] = useState("");
+  const [secretRefs, setSecretRefs] = useState("");
+  const [message, setMessage] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function submit(event: React.FormEvent) {
+    event.preventDefault(); setBusy(true); setMessage(null);
+    try {
+      let activeProjectId = projectId;
+      if (projectName.trim()) {
+        const created = await api.createProject({ name: projectName.trim(), description: projectDescription.trim() });
+        activeProjectId = created.id; setProjectId(activeProjectId);
+      }
+      if (!activeProjectId) throw new Error("Create or select a project first");
+      if (environmentName.trim()) await api.createEnvironment(activeProjectId, { name: environmentName.trim(), base_url: baseUrl.trim(), allowed_origins: [baseUrl.trim()] });
+      if (scenarioName.trim()) await api.createScenario(activeProjectId, { name: scenarioName.trim(), version: scenarioVersion.trim(), script_path: scriptPath.trim(), config_snapshot: { routes: routes.split("\n").map((route) => route.trim()).filter(Boolean) }, secret_refs: secretRefs.split(",").map((value) => value.trim()).filter(Boolean) });
+      setMessage("Registry saved. Reloading targets…"); onChanged();
+    } catch (cause) { setMessage(cause instanceof Error ? cause.message : "Configuration failed"); } finally { setBusy(false); }
+  }
+
+  return <section className="panel registry" id="scenarios"><p className="eyebrow">TARGET REGISTRY</p><h2>Configure projects, environments, and immutable scenarios</h2><p className="muted">Use HTTPS origins and read-only routes. Secret values never belong in this form; only uppercase runtime secret references are stored.</p><form className="run-form" onSubmit={(event) => void submit(event)}><label>Existing project<select value={projectId} onChange={(event) => setProjectId(event.target.value)}><option value="">Create a new project below</option>{projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label><div className="form-grid"><label>New project name<input value={projectName} onChange={(event) => setProjectName(event.target.value)} placeholder="Knowdex"/></label><label>Description<input value={projectDescription} onChange={(event) => setProjectDescription(event.target.value)} placeholder="Synthetic read evidence"/></label></div><div className="form-grid"><label>Environment name<input value={environmentName} onChange={(event) => setEnvironmentName(event.target.value)} placeholder="production-read"/></label><label>HTTPS base URL<input value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="https://api.example.com"/></label></div><div className="form-grid"><label>Scenario name<input value={scenarioName} onChange={(event) => setScenarioName(event.target.value)} placeholder="Read journey"/></label><label>Version<input value={scenarioVersion} onChange={(event) => setScenarioVersion(event.target.value)}/></label></div><label>Script path<input value={scriptPath} onChange={(event) => setScriptPath(event.target.value)} placeholder="k6/scenarios/knowdex-read.js"/></label><label>Approved routes, one per line<textarea value={routes} onChange={(event) => setRoutes(event.target.value)} placeholder="POST /auth/login&#10;GET /auth/me"/></label><label>Runtime secret references, comma-separated<input value={secretRefs} onChange={(event) => setSecretRefs(event.target.value)} placeholder="TEST_ACCOUNT_EMAIL,TEST_ACCOUNT_PASSWORD"/></label><div><button type="submit" disabled={busy}>{busy ? "Saving…" : "Save registry"}</button></div>{message && <p className="muted">{message}</p>}</form></section>;
 }
 
 function ComparisonPanel({ runs }: { runs: RunSummary[] }) {

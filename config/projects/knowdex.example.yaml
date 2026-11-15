@@ -1,0 +1,18 @@
+project: knowdex
+environment: production-read-review
+target_origin: https://api.knowdex.me
+scenario: knowdex-workspace-read
+version: "1"
+workload:
+  vus: 1
+  duration_seconds: 60
+  think_time_seconds: 2
+  hard_runtime_seconds: 75
+secrets:
+  credential: TEST_ACCOUNT_CREDENTIAL
+  password: TEST_ACCOUNT_PASSWORD
+  seeded_workspace_id: SEEDED_WORKSPACE_ID
+notes:
+  - "Example only; credentials and workspace IDs are injected at runtime."
+  - "The scenario reads auth, workspace, and seeded content routes only."
+  - "Do not run against production until the target, account, workspace, and workload are explicitly reviewed."
