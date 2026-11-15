@@ -1,0 +1,1417 @@
+# ProjectBench W1 claims ledger.
+# Source paths are relative to the ProjectBench workspace parent unless noted.
+# A claim is not publishable evidence until a local, reproducible result exists.
+
+- id: canvassync-crdt-at-scale
+  project: canvassync
+  source: resume
+  source_ref: "../Career-Ops/cv.md:7"
+  statement: "CanvasSync uses CRDT-based consistency and operates at scale."
+  kind: behavior
+  metric: crdt_convergence_and_deployment_scale
+  metric_definition: "Whether concurrent replicas converge under the defined workload, plus the explicitly measured number of clients/nodes; no qualitative scale claim is accepted without those values."
+  direction: higher_is_better
+  baseline: "not applicable"
+  candidate: "CanvasSync current implementation"
+  workloads: [concurrent_canvas_edits, multi_node_fanout]
+  repetitions: 5
+  status: unverified
+  verification: "CRDT merge code exists: mergeCanvasCrdtSnapshot compares version metadata, applies incoming shapes, records deletions as tombstones, and returns one merged snapshot (../Canvassync/packages/common/src/canvas-crdt.ts:111-165). The resume's 'at scale' wording has no usage or benchmark boundary, and no convergence measurement is claimed."
+
+- id: canvassync-redis-cold-start-latency
+  project: canvassync
+  source: resume
+  source_ref: "../Career-Ops/cv.md:36"
+  statement: "Redis sync cut cold-start sync latency about 60% versus a DB-poll baseline."
+  kind: comparative
+  metric: join_sync_latency_ms
+  metric_definition: "Elapsed time from an authorized WebSocket join request to delivery of the authoritative room snapshot, measured at the client."
+  direction: lower_is_better
+  baseline: "current build with the pre-Redis-compatible join path enabled by an experiment flag"
+  candidate: "the same current build with the Redis-backed join path enabled by the same experiment flag"
+  workloads: [cold_room_join, warm_room_join]
+  repetitions: 5
+  status: unverified
+  verification: "At 76a5fe0^, an authorized join called initializeRoomSync; a cold room performed one Postgres shape.findMany, cached the snapshot in process, and returned room_joined (../Canvassync/apps/ws-backend/src/ws/roomSync.ts:16-39 and ../Canvassync/apps/ws-backend/src/ws/messageHandler.ts:68-115). There is no polling loop. The comparison is unmeasured. Reimplement that one-read/in-process-cache path behind a flag in the current build before measuring; do not compare 76a5fe0^ with the current build."
+
+- id: canvassync-circuit-breaker
+  project: canvassync
+  source: resume
+  source_ref: "../Career-Ops/cv.md:37"
+  statement: "CanvasSync uses a sliding-window DB circuit breaker with 5 failures in 60 seconds and fails fast with 503."
+  kind: behavior
+  metric: db_circuit_open_response
+  metric_definition: "After the configured transient-failure threshold within the configured window, the next guarded DB operation returns the typed open-circuit error and HTTP 503 mapping."
+  direction: lower_is_better
+  baseline: "DB calls without the breaker"
+  candidate: "breaker enabled: 5 failures / 60000 ms"
+  workloads: [transient_db_failures, sustained_db_failures]
+  repetitions: 5
+  status: unverified
+  verification: "Code defaults and 503 mapping are present; fault behavior has not been measured here."
+
+- id: canvassync-idempotency-window
+  project: canvassync
+  source: resume
+  source_ref: "../Career-Ops/cv.md:37"
+  statement: "CanvasSync has a SHA-256 idempotency store with a 10-minute window."
+  kind: behavior
+  metric: duplicate_request_replays
+  metric_definition: "Number of duplicate requests with the same idempotency key that execute the underlying operation more than once during 600000 ms."
+  direction: lower_is_better
+  baseline: "idempotency middleware disabled"
+  candidate: "idempotency middleware enabled for 600000 ms"
+  workloads: [duplicate_requests, expired_key_request]
+  repetitions: 5
+  status: unverified
+  verification: "The configured window and SHA-256 implementation are source facts; replay behavior is untested."
+
+- id: canvassync-token-bucket-rate-limit
+  project: canvassync
+  source: resume
+  source_ref: "../Career-Ops/cv.md:37"
+  statement: "CanvasSync uses per-client token-bucket rate limiting and returns 429 when a quota is exceeded."
+  kind: behavior
+  metric: rate_limited_requests
+  metric_definition: "Count of requests rejected with HTTP 429 after a client exhausts its configured quota, with Retry-After present."
+  direction: lower_is_better
+  baseline: "rate limiting disabled"
+  candidate: "Redis-backed fixed-window limiter"
+  workloads: [within_quota, over_quota, redis_unavailable]
+  repetitions: 5
+  status: unverified
+  verification: "The current HTTP middleware is fixed-window Redis-backed, not a token bucket; it fails open on Redis errors."
+
+- id: canvassync-rag-pipeline
+  project: canvassync
+  source: resume
+  source_ref: "../Career-Ops/cv.md:38"
+  statement: "CanvasSync has a RAG pipeline with chunking, Gemini embeddings, hybrid cosine-plus-keyword retrieval, and citation-grounded generation."
+  kind: behavior
+  metric: grounded_answer_retrieval_rate
+  metric_definition: "Fraction of seeded questions whose answer cites at least one expected retrieved source passage under the local fake-Gemini workload."
+  direction: higher_is_better
+  baseline: "no source retrieval"
+  candidate: "CanvasSync source ingestion and retrieval pipeline"
+  workloads: [exact_keyword_question, semantic_question, no_match_question]
+  repetitions: 5
+  status: unverified
+  verification: "The named pipeline components are documented and implemented; end-to-end behavior is not measured here."
+
+- id: canvassync-ai-fallback-chain
+  project: canvassync
+  source: resume
+  source_ref: "../Career-Ops/cv.md:38"
+  statement: "CanvasSync uses a 2-model fallback chain for rate-limit resilience."
+  kind: behavior
+  metric: fallback_completion_rate
+  metric_definition: "Fraction of local AI jobs that complete when the first configured model returns a simulated rate-limit error and the fallback model is available."
+  direction: higher_is_better
+  baseline: "single model"
+  candidate: "gemini-flash-latest then gemini-flash-lite-latest"
+  workloads: [primary_model_success, primary_model_rate_limited]
+  repetitions: 5
+  status: unverified
+  verification: "The README config lists two ordered model aliases and worker fallback handling; no local result exists."
+
+- id: canvassync-three-docker-images
+  project: canvassync
+  source: resume
+  source_ref: "../Career-Ops/cv.md:38"
+  statement: "CanvasSync CI/CD builds and deploys 3 Docker images to Azure."
+  kind: code_fact
+  metric: docker_image_count
+  metric_definition: "Count of distinct application images built and pushed by the documented CanvasSync deployment workflow."
+  direction: exact_match
+  baseline: "not applicable"
+  candidate: "documented deployment topology"
+  workloads: [deployment_configuration]
+  repetitions: 1
+  status: verified
+  verification: "Verified in ../Canvassync/.github/workflows/deploy.yml:55-61,76-86: the deployment matrix names three application Dockerfiles and the build-and-push step publishes each image; ../Canvassync/.github/workflows/deploy.yml:94-95,200-203 deploys the stack to the Azure app VM."
+
+- id: knowdex-ten-message-types
+  project: knowdex
+  source: resume
+  source_ref: "../Career-Ops/cv.md:44"
+  statement: "Knowdex has a 10-message-type binary WebSocket codec."
+  kind: code_fact
+  metric: websocket_message_type_count
+  metric_definition: "Count of entries in the shared binary protocol type map."
+  direction: exact_match
+  baseline: "not applicable"
+  candidate: "Knowdex ProtocolCodec TypeMap"
+  workloads: [protocol_codec]
+  repetitions: 1
+  status: verified
+  verification: "Verified in ../Knowdex/packages/crdt/src/protocol.ts:6-30: ten BinaryType/TypeMap entries."
+
+- id: knowdex-uint16-framing
+  project: knowdex
+  source: resume
+  source_ref: "../Career-Ops/cv.md:44"
+  statement: "Knowdex binary WebSocket codec uses little-endian uint16 framing."
+  kind: code_fact
+  metric: ai_update_text_length_framing
+  metric_definition: "Whether the shared binary WebSocket codec uses little-endian uint16 framing generally."
+  direction: exact_match
+  baseline: "not applicable"
+  candidate: "Knowdex ProtocolCodec framing"
+  workloads: [binary_websocket_frames]
+  repetitions: 1
+  status: revised
+  verification: "The code fact wording is incorrect as a general framing claim. The inspected implementation only encodes the AI-update text length as two little-endian bytes and decodes it as the low byte plus the high byte shifted by eight (../Knowdex/packages/crdt/src/protocol.ts:62-77,145-163). Suggested precise wording: \"Knowdex AI-update frames encode text length as a little-endian uint16.\""
+
+- id: knowdex-coalesce-volume
+  project: knowdex
+  source: resume
+  source_ref: "../Career-Ops/cv.md:45"
+  statement: "A 16 ms coalesce buffer cut outbound WebSocket volume about 90% under keystroke-burst load."
+  kind: comparative
+  metric: outbound_frames_per_receiver
+  metric_definition: "Count of update frames delivered to each non-sending receiver during one fixed workload."
+  direction: lower_is_better
+  baseline: "coalesce off (interval 0)"
+  candidate: "coalesce 16 ms"
+  workloads: [one_typist, five_typists, paste_burst, ai_stream]
+  repetitions: 5
+  status: unverified
+  verification: "The 16 ms interval and merge-before-broadcast path are verified in source; the 90% reduction is unmeasured."
+
+- id: knowdex-ai-crdt-stream
+  project: knowdex
+  source: resume
+  source_ref: "../Career-Ops/cv.md:46"
+  statement: "Knowdex streams Gemini tokens into the Y.js document in per-token transactions and broadcasts through the coalesce buffer."
+  kind: behavior
+  metric: ai_update_delivery_and_document_convergence
+  metric_definition: "Whether each generated token update is applied to the shared document, delivered through the same broadcast path, and converges for all receivers."
+  direction: higher_is_better
+  baseline: "AI writer bypassing shared document sync"
+  candidate: "AI writer as a CRDT client"
+  workloads: [single_ai_stream, concurrent_ai_streams]
+  repetitions: 5
+  status: unverified
+  verification: "Source documents this path; no local end-to-end measurement exists."
+
+- id: canvassync-readme-redis-authority
+  project: canvassync
+  source: readme
+  source_ref: "../Canvassync/README.md:71-82"
+  statement: "Redis holds the authoritative room version and latest snapshot while RabbitMQ carries durable room events."
+  kind: behavior
+  metric: authoritative_snapshot_consistency
+  metric_definition: "Whether accepted writes use the Redis room version/snapshot as authority and durable room events are emitted for replay."
+  direction: higher_is_better
+  baseline: "single-process in-memory room cache"
+  candidate: "Redis authority plus RabbitMQ durable events"
+  workloads: [single_node, multi_node, redis_snapshot_miss]
+  repetitions: 5
+  status: verified
+  verification: "Verified in ../Canvassync/packages/redis-sync/src/index.ts:15-17,137-192 and ../Canvassync/packages/queue-sync/src/index.ts:315-342: Redis stores room version/snapshot state and the queue-sync publisher persists and confirms durable RabbitMQ room events."
+
+- id: canvassync-readme-atomic-snapshot-commit
+  project: canvassync
+  source: readme
+  source_ref: "../Canvassync/README.md:154-165"
+  statement: "CanvasSync atomically compares and commits room version plus snapshot, then publishes room events."
+  kind: behavior
+  metric: stale_write_acceptance_rate
+  metric_definition: "Fraction of writes with a stale expected room version that are accepted instead of rejected with a sync error."
+  direction: lower_is_better
+  baseline: "unconditional snapshot write"
+  candidate: "Redis compare-and-commit"
+  workloads: [single_writer, concurrent_writers, stale_version]
+  repetitions: 5
+  status: verified
+  verification: "Verified in ../Canvassync/packages/redis-sync/src/index.ts:260-320 and ../Canvassync/apps/ws-backend/src/ws/messageHandler.ts:551-600."
+
+- id: canvassync-db-resilience-defaults
+  project: canvassync
+  source: docs
+  source_ref: "../Canvassync/docs/db-resilience.md:59-82"
+  statement: "The DB wrapper defaults to 3 retries, a 75 ms base delay, a 5-failure/60000 ms circuit window, and 503 when open."
+  kind: code_fact
+  metric: resilience_configuration
+  metric_definition: "Exact configured retry count, base delay, failure threshold, failure window, and open-circuit HTTP status."
+  direction: exact_match
+  baseline: "not applicable"
+  candidate: "documented defaults"
+  workloads: [configuration_read]
+  repetitions: 1
+  status: verified
+  verification: "Verified in ../Canvassync/packages/db/src/index.ts:46-64,80-88: the source defaults are 3 retry attempts, 75 ms base delay, a 5-failure/60000 ms circuit window, and statusCode 503 for the open-circuit error."
+
+- id: canvassync-rag-limits
+  project: canvassync
+  source: docs
+  source_ref: "../Canvassync/docs/features.md:40"
+  statement: "CanvasSync RAG accepts 12 sources and 600000 characters per canvas, chunks source text, embeds with Gemini, and combines cosine and keyword scoring."
+  kind: code_fact
+  metric: rag_limits_and_retrieval_components
+  metric_definition: "Exact source-count and character limits, plus presence of chunking, embedding, cosine scoring, keyword scoring, and cited passages."
+  direction: exact_match
+  baseline: "not applicable"
+  candidate: "documented RAG implementation"
+  workloads: [under_limit, source_limit, character_limit, hybrid_retrieval]
+  repetitions: 1
+  status: verified
+  verification: "Verified in ../Canvassync/apps/http-backend/src/controllers/sources.controller.ts:17-18,64-82 and ../Canvassync/apps/http-backend/src/utils/rag.ts:4-14,24-47,50-72,145-163,174-207: source-count/aggregate-character limits, chunking, Gemini embeddings, keyword scoring, cosine scoring, and ranked retrieval are implemented in source."
+
+- id: knowdex-readme-coalesced-persistence
+  project: knowdex
+  source: readme
+  source_ref: "../Knowdex/README.md:89-112"
+  statement: "Knowdex coalesces bursts of edits before persisting so typing does not produce one database write per keystroke."
+  kind: behavior
+  metric: database_writes_per_input_update
+  metric_definition: "Database write operations divided by client updates during a fixed burst workload."
+  direction: lower_is_better
+  baseline: "persist every update"
+  candidate: "coalesced persistence"
+  workloads: [one_typist, five_typists, paste_burst]
+  repetitions: 5
+  status: unverified
+  verification: "README wording is supported by the coalesce buffer source at ../Knowdex/apps/ws-backend/src/coalesce-buffer.ts:119-177; no benchmark result exists."
+
+- id: knowdex-semantic-rag
+  project: knowdex
+  source: readme
+  source_ref: "../Knowdex/README.md:129-133"
+  statement: "Knowdex indexes note chunks with embeddings, combines vector similarity with keyword overlap, and streams cited answers over SSE."
+  kind: behavior
+  metric: cited_answer_rate
+  metric_definition: "Fraction of seeded local questions whose streamed answer includes an expected note citation after hybrid retrieval."
+  direction: higher_is_better
+  baseline: "keyword-only retrieval"
+  candidate: "embedding plus keyword retrieval"
+  workloads: [semantic_question, exact_keyword_question, no_match_question]
+  repetitions: 5
+  status: unverified
+  verification: "README describes the behavior; no docs folder exists in ../Knowdex to provide a second documentation source."
+
+- id: knowdex-ai-fallback
+  project: knowdex
+  source: readme
+  source_ref: "../Knowdex/README.md:148-150"
+  statement: "Knowdex walks an ordered model plan with per-model circuit breakers and degrades to extractive answers when all models are unavailable."
+  kind: behavior
+  metric: fallback_answer_completion_rate
+  metric_definition: "Fraction of local questions that return an extractive answer when every configured model is simulated as unavailable."
+  direction: higher_is_better
+  baseline: "single model, fail on provider error"
+  candidate: "ordered model plan plus extractive fallback"
+  workloads: [primary_success, primary_rate_limited, all_models_unavailable]
+  repetitions: 5
+  status: unverified
+  verification: "README assertion requires a local fault-injection test; no result exists."
+
+- id: knowdex-binary-codec
+  project: knowdex
+  source: resume
+  source_ref: "../Career-Ops/cv.md:44"
+  statement: "The shared ProtocolCodec encodes a one-byte message discriminator and binary payloads for the ten mapped message types."
+  kind: code_fact
+  metric: codec_round_trip_success
+  metric_definition: "Fraction of supported message values that encode and decode to the same typed payload without JSON framing."
+  direction: higher_is_better
+  baseline: "JSON WebSocket payloads"
+  candidate: "ProtocolCodec binary framing"
+  workloads: [all_supported_message_types]
+  repetitions: 1
+  status: verified
+  verification: "Verified in ../Knowdex/packages/crdt/src/protocol.ts:6-30, 40-120, 123-197."
+
+- id: canvassync-readme-runtime-topology
+  project: canvassync
+  source: readme
+  source_ref: "../Canvassync/README.md:14-16"
+  statement: "CanvasSync syncs canvas edits over WebSockets, persists boards to PostgreSQL, and uses four apps plus shared packages including a Gemini worker and queue/cache clients."
+  kind: code_fact
+  metric: documented_runtime_topology
+  metric_definition: "Presence of the named transports, persistence store, application count, worker, and shared package responsibilities in the documented topology."
+  direction: exact_match
+  baseline: "not applicable"
+  candidate: "documented CanvasSync topology"
+  workloads: [configuration_read]
+  repetitions: 1
+  status: unverified
+  verification: "The cited README and package layout describe the topology, but no app source/workflow/Compose citation was supplied here that directly proves the complete statement."
+
+- id: canvassync-readme-transport-boundaries
+  project: canvassync
+  source: readme
+  source_ref: "../Canvassync/README.md:71-82,144"
+  statement: "CanvasSync uses Redis for authoritative room version/snapshot state, RabbitMQ for durable room events and replay, Redis Pub/Sub as a fallback, and WebRTC for direct voice media."
+  kind: behavior
+  metric: transport_role_consistency
+  metric_definition: "Whether each documented transport is used for its stated authority, durability, fallback, or peer-to-peer media role."
+  direction: exact_match
+  baseline: "single-process memory-only sync"
+  candidate: "Redis plus RabbitMQ plus WebRTC topology"
+  workloads: [single_node, multi_node, voice_session]
+  repetitions: 1
+  status: unverified
+  verification: "The cited README text and an indirect reference to another ledger row do not directly prove every transport role in app source; the complete role-consistency statement remains unverified."
+
+- id: canvassync-readme-db-resilience-config
+  project: canvassync
+  source: readme
+  source_ref: "../Canvassync/README.md:341-349"
+  statement: "CanvasSync documents a 60000 ms HTTP rate window, 120-request limit, 3 DB retry attempts, 75 ms retry base delay, a 5-failure/60000 ms circuit window, 30000 ms open cooldown, and 2 half-open successes."
+  kind: code_fact
+  metric: documented_resilience_limits
+  metric_definition: "Exact values of each separately documented rate-limit, retry, circuit-window, cooldown, and half-open threshold setting."
+  direction: exact_match
+  baseline: "not applicable"
+  candidate: "documented environment defaults"
+  workloads: [configuration_read]
+  repetitions: 1
+  status: unverified
+  verification: "The cited README documents these values, but the row does not cite app source/configuration at exact lines that directly prove all of them."
+
+- id: canvassync-readme-messaging-limits
+  project: canvassync
+  source: readme
+  source_ref: "../Canvassync/README.md:357-371"
+  statement: "CanvasSync documents 16 RabbitMQ room partitions, prefetch 200, a 524288-byte WebSocket payload limit, snapshot rate 30 per 1000 ms, 30000 ms metrics logging, 60 ephemeral events per socket per second, 30000 ms history interval, and 60 retained room snapshots."
+  kind: code_fact
+  metric: documented_messaging_limits
+  metric_definition: "Exact configured partition, prefetch, payload, rate, logging, interval, and retention values, each treated as a distinct limit."
+  direction: exact_match
+  baseline: "not applicable"
+  candidate: "documented environment defaults"
+  workloads: [configuration_read]
+  repetitions: 1
+  status: unverified
+  verification: "The cited README documents these values, but the row does not cite app source/configuration at exact lines that directly prove all of them."
+
+- id: canvassync-api-shape-limit
+  project: canvassync
+  source: docs
+  source_ref: "../Canvassync/docs/api-reference.md:43-64"
+  statement: "CanvasSync slide replacement accepts at most 100 slides; AI edit selection is documented as 1–120 shapes; image input is limited to about 1.4 MB base64."
+  kind: code_fact
+  metric: api_payload_limits
+  metric_definition: "Exact documented maximum slide count, edit selection range, and image payload size."
+  direction: exact_match
+  baseline: "not applicable"
+  candidate: "documented API contract"
+  workloads: [maximum_slides, minimum_edit_selection, maximum_edit_selection, maximum_image_payload]
+  repetitions: 1
+  status: unverified
+  verification: "The cited API reference is documentation-only; no exact app-source citation is provided that directly proves all three limits."
+
+- id: canvassync-api-presence-limits
+  project: canvassync
+  source: docs
+  source_ref: "../Canvassync/docs/api-reference.md:115,129"
+  statement: "CanvasSync limits ephemeral events to 60 per socket per second and re-reads a connected user's role from the database every 10 seconds."
+  kind: code_fact
+  metric: websocket_presence_and_role_intervals
+  metric_definition: "Exact documented per-socket event rate and role refresh interval."
+  direction: exact_match
+  baseline: "not applicable"
+  candidate: "documented WebSocket behavior"
+  workloads: [ephemeral_rate_limit, role_demotion_refresh]
+  repetitions: 1
+  status: unverified
+  verification: "The cited API reference is documentation-only; no exact app-source citation is provided that directly proves both behavior statements."
+
+- id: canvassync-ai-latency-budget
+  project: canvassync
+  source: docs
+  source_ref: "../Canvassync/docs/architecture-ai-pipeline.md:9-12,47-55"
+  statement: "CanvasSync documents Gemini calls as taking 2–15 seconds, a 30-second synchronous-request patience limit, and a 2-second polling example."
+  kind: comparative
+  metric: ai_generation_latency_ms
+  metric_definition: "Observed end-to-end AI generation and polling latency in milliseconds under a named workload; the documented 2–15 s and 30 s values are targets/context, not measurements from this ledger."
+  direction: lower_is_better
+  baseline: "synchronous HTTP or WebSocket return"
+  candidate: "queued worker plus polling"
+  workloads: [ai_generation, slow_provider, polling_interval]
+  repetitions: 5
+  status: unverified
+  verification: "The numeric values are documentation statements at ../Canvassync/docs/architecture-ai-pipeline.md:9-12,47-55; no local latency measurement exists."
+
+- id: canvassync-ai-worker-technical-contract
+  project: canvassync
+  source: docs
+  source_ref: "../Canvassync/docs/architecture-ai-pipeline.md:22-30,43"
+  statement: "CanvasSync queues AI work, returns 202 with a job ID, validates generated JSON against Zod schemas, retries malformed output, and persists results for later retrieval."
+  kind: behavior
+  metric: ai_job_contract_and_recovery
+  metric_definition: "Whether enqueue, 202/job-id response, schema validation, repair retry, and durable result retrieval occur for the stated failure cases."
+  direction: higher_is_better
+  baseline: "synchronous unvalidated generation"
+  candidate: "queued validated worker pipeline"
+  workloads: [valid_generation, malformed_json, client_disconnect]
+  repetitions: 5
+  status: unverified
+  verification: "Documented at ../Canvassync/docs/architecture-ai-pipeline.md:22-30,43; end-to-end fault behavior is not measured."
+
+- id: canvassync-scaling-slo-latency
+  project: canvassync
+  source: docs
+  source_ref: "../Canvassync/docs/scaling-runbook.md:7-13"
+  statement: "CanvasSync's initial runbook targets snapshot process p95 ≤150 ms and Redis fan-out p95 ≤50 ms."
+  kind: comparative
+  metric: snapshot_and_fanout_latency_p95_ms
+  metric_definition: "p95 server-side snapshot process latency and published-to-peer Redis fan-out lag, each in milliseconds, over the full stated run."
+  direction: lower_is_better
+  baseline: "not applicable; runbook target"
+  candidate: "current multi-node sync implementation"
+  workloads: [multi_node_room, burst_editing]
+  repetitions: 5
+  status: unverified
+  verification: "These are initial targets, not measurements, in ../Canvassync/docs/scaling-runbook.md:7-13."
+
+- id: canvassync-scaling-slo-error-rates
+  project: canvassync
+  source: docs
+  source_ref: "../Canvassync/docs/scaling-runbook.md:9-13"
+  statement: "CanvasSync's initial runbook targets version mismatch below 1%, snapshot commit failures below 0.5%, and durable publish failures below 0.1%."
+  kind: comparative
+  metric: sync_error_rates
+  metric_definition: "Each failure counter divided by its documented denominator over the complete workload, reported as a percentage."
+  direction: lower_is_better
+  baseline: "not applicable; runbook target"
+  candidate: "current multi-node sync implementation"
+  workloads: [multi_node_room, burst_editing]
+  repetitions: 5
+  status: unverified
+  verification: "These are initial targets, not measurements, in ../Canvassync/docs/scaling-runbook.md:9-13."
+
+- id: canvassync-scaling-load-plan
+  project: canvassync
+  source: docs
+  source_ref: "../Canvassync/docs/scaling-runbook.md:39-45"
+  statement: "The CanvasSync scaling runbook calls for at least 2 WebSocket nodes, rooms of 10, 25, and 50 users, runs of at least 10 minutes, and p50/p95/p99 latency reporting."
+  kind: code_fact
+  metric: documented_load_plan
+  metric_definition: "Exact node count, room-user levels, minimum run duration, and latency percentiles required by the runbook."
+  direction: exact_match
+  baseline: "not applicable"
+  candidate: "documented load-test procedure"
+  workloads: [10_users, 25_users, 50_users]
+  repetitions: 1
+  status: unverified
+  verification: "The cited scaling runbook is a documentation procedure, not app source/workflow/Compose evidence of an executed load plan."
+
+- id: knowdex-readme-crdt-and-broadcast
+  project: knowdex
+  source: readme
+  source_ref: "../Knowdex/README.md:91-112"
+  statement: "Knowdex uses Yjs CRDT documents, a compact binary WebSocket protocol, coalesced persistence, and Redis Pub/Sub for multiple WebSocket servers."
+  kind: behavior
+  metric: collaborative_sync_contract
+  metric_definition: "Whether concurrent document updates converge, binary framing is used, persistence coalesces bursts, and cross-server fan-out uses Redis Pub/Sub."
+  direction: higher_is_better
+  baseline: "single-server JSON updates"
+  candidate: "Yjs CRDT plus binary protocol and Redis fan-out"
+  workloads: [concurrent_edits, burst_persistence, multi_server_fanout]
+  repetitions: 5
+  status: unverified
+  verification: "README assertions are at ../Knowdex/README.md:91-112; source supports the design but no end-to-end result exists."
+
+- id: knowdex-readme-rag-technical-path
+  project: knowdex
+  source: readme
+  source_ref: "../Knowdex/README.md:129-133"
+  statement: "Knowdex chunks notes, uses Gemini or a deterministic local embedder, stores float8 arrays in Postgres, combines vector similarity with keyword overlap, streams SSE answers, and caches repeat questions by workspace index version."
+  kind: behavior
+  metric: hybrid_retrieval_and_answer_delivery
+  metric_definition: "Fraction of seeded questions with the expected retrieved passage, citation, SSE completion, and cache behavior under provider and no-key paths."
+  direction: higher_is_better
+  baseline: "keyword-only retrieval without answer cache"
+  candidate: "hybrid embeddings plus keyword overlap and SSE/cache"
+  workloads: [semantic_question, exact_keyword_question, no_api_key, repeat_question]
+  repetitions: 5
+  status: unverified
+  verification: "README describes the path at ../Knowdex/README.md:129-133; no local end-to-end measurement exists."
+
+- id: knowdex-readme-fallback-timers
+  project: knowdex
+  source: readme
+  source_ref: "../Knowdex/README.md:150"
+  statement: "Knowdex skips rate-limited models for 2 minutes, retires models for 1 hour, and treats briefly unavailable models as unavailable for 20 seconds before extractive fallback."
+  kind: behavior
+  metric: model_fallback_recovery_seconds
+  metric_definition: "Observed skip, retirement, and transient-unavailability durations in seconds, plus whether an extractive answer completes when all models are unavailable."
+  direction: lower_is_better
+  baseline: "single model with provider error"
+  candidate: "ordered model plan with per-model circuit breakers"
+  workloads: [rate_limited_model, retired_model, transient_failure, all_models_unavailable]
+  repetitions: 5
+  status: unverified
+  verification: "The timers are README assertions at ../Knowdex/README.md:150; no fault-injection measurement exists."
+
+- id: knowdex-readme-service-limits
+  project: knowdex
+  source: readme
+  source_ref: "../Knowdex/README.md:289"
+  statement: "Knowdex documents per-user in-memory limits of Ask 20/minute, assistant 30/minute, imports 10/10 minutes, uploads 30/minute, public pages 240/minute/IP, and roughly 1000 embedding requests/day on the Gemini free tier."
+  kind: code_fact
+  metric: documented_service_limits
+  metric_definition: "Each separately documented request quota and embedding quota, with its scope and time window preserved."
+  direction: exact_match
+  baseline: "not applicable"
+  candidate: "documented Knowdex limits"
+  workloads: [ask_quota, assistant_quota, import_quota, upload_quota, public_page_quota, embedding_quota]
+  repetitions: 1
+  status: unverified
+  verification: "The cited README is documentation-only; no exact app source/configuration citation directly proves the complete quota statement."
+
+- id: knowdex-readme-container-memory
+  project: knowdex
+  source: readme
+  source_ref: "../Knowdex/README.md:305-313"
+  statement: "Knowdex documents HTTP and WebSocket backends as Docker containers and caps containers at 256 MB of memory."
+  kind: code_fact
+  metric: deployment_memory_limit_mb
+  metric_definition: "Configured container memory cap in megabytes and the services to which it applies."
+  direction: exact_match
+  baseline: "not applicable"
+  candidate: "documented deployment configuration"
+  workloads: [deployment_configuration]
+  repetitions: 1
+  status: unverified
+  verification: "The cited README is documentation-only; the row does not cite the Compose configuration that directly proves the stated service and memory settings."
+
+- id: knowdex-architecture-shared-types-and-crdt
+  project: knowdex
+  source: docs
+  source_ref: "../Knowdex/ARCHITECTURE.md:7-32"
+  statement: "Knowdex shares TypeScript interfaces across frontend/backend, builds shared dependencies before consumers with Turborepo, and uses a shared CRDT package with binary WebSocket framing."
+  kind: behavior
+  metric: shared_contract_and_build_order
+  metric_definition: "Whether shared type changes propagate to both applications, dependency build order is respected, and both ends use the shared binary codec."
+  direction: higher_is_better
+  baseline: "duplicated interfaces and independent framing"
+  candidate: "shared types, Turborepo dependency graph, and ProtocolCodec"
+  workloads: [type_change, dependency_build, binary_round_trip]
+  repetitions: 5
+  status: unverified
+  verification: "Design assertions are documented in ../Knowdex/ARCHITECTURE.md:7-32; no failure-injection or timing result exists."
+
+- id: knowdex-docker-image-size
+  project: knowdex
+  source: docs
+  source_ref: "../Knowdex/DOCKER.md:3-21"
+  statement: "Knowdex uses multi-stage Docker builds; the documented build stage can be about 1.2 GB while the runner is about 150 MB, and healthchecks wait for Postgres and Redis readiness."
+  kind: code_fact
+  metric: container_image_size_and_readiness
+  metric_definition: "Measured image sizes in bytes for build and runner stages plus successful startup after dependency healthchecks."
+  direction: lower_is_better
+  baseline: "single-stage image and start-only dependency ordering"
+  candidate: "multi-stage image with healthchecks"
+  workloads: [docker_build, dependency_startup]
+  repetitions: 5
+  status: unverified
+  verification: "The sizes and readiness design are documentation assertions at ../Knowdex/DOCKER.md:3-21; current measurements are absent."
+
+- id: knowdex-deploy-topology
+  project: knowdex
+  source: docs
+  source_ref: "../Knowdex/DEPLOY.md:5-24"
+  statement: "Knowdex documents separate HTTP and WebSocket services on ports 8000 and 8080, PostgreSQL on a private server, Redis for WebSocket Pub/Sub, and CI/CD on every push to main."
+  kind: code_fact
+  metric: deployment_topology
+  metric_definition: "Exact service roles, ports, dependency locations, and deployment trigger stated by the deployment document."
+  direction: exact_match
+  baseline: "not applicable"
+  candidate: "documented Knowdex deployment"
+  workloads: [deployment_configuration]
+  repetitions: 1
+  status: unverified
+  verification: "The cited deployment document is documentation-only; no exact Compose/workflow citation is supplied that directly proves the complete topology and trigger statement."
+
+- id: avajet-work-order-optimization
+  project: avajet
+  source: resume
+  source_ref: "../Career-Ops/cv.md:25"
+  statement: "AVAJet fixed duplicate work-order keys with a row lock, MAX-derived sequence, bounded retry, and reduced DB round-trips from O(n) to O(1) under real multi-writer load."
+  kind: proprietary
+  metric: work_order_db_round_trips
+  metric_definition: "Database round-trips required to create one work order as the number of concurrent writers changes."
+  direction: lower_is_better
+  baseline: "pre-fix access pattern"
+  candidate: "row lock plus map-indexed batch loading"
+  workloads: [multi_writer_work_order_creation]
+  repetitions: 5
+  status: unverified
+  proprietary: true
+  verification: "Proprietary AVAJet item. Do not publish evidence or source details. Resume wording is not independently verified in this worktree."
+
+- id: avajet-compliance-engine
+  project: avajet
+  source: resume
+  source_ref: "../Career-Ops/cv.md:26"
+  statement: "AVAJet's compliance engine supports 70+ component/task types and three expiry dimensions with zero per-type conditional branching."
+  kind: proprietary
+  metric: compliance_rule_coverage_and_branching
+  metric_definition: "Count of supported component/task types, count of expiry dimensions, and count of per-type conditional branches in the proprietary rule engine."
+  direction: exact_match
+  baseline: "not applicable"
+  candidate: "AVAJet compliance engine"
+  workloads: [all_supported_type_families]
+  repetitions: 1
+  status: unverified
+  proprietary: true
+  verification: "Proprietary AVAJet item. Do not publish evidence or source details. Resume wording is not independently verified in this worktree."
+
+- id: avajet-cross-entity-search
+  project: avajet
+  source: resume
+  source_ref: "../Career-Ops/cv.md:27"
+  statement: "AVAJet search spans 36 entity types across two schemas and is bounded to 6 concurrent queries."
+  kind: proprietary
+  metric: search_entity_and_concurrency_counts
+  metric_definition: "Count of searchable entity types, database schemas, and simultaneous query tasks in the proprietary search implementation."
+  direction: exact_match
+  baseline: "not applicable"
+  candidate: "AVAJet cross-entity search"
+  workloads: [permission_filtered_search]
+  repetitions: 1
+  status: unverified
+  proprietary: true
+  verification: "Proprietary AVAJet item. Do not publish evidence or source details. Resume wording is not independently verified in this worktree."
+
+- id: avajet-audit-chain
+  project: avajet
+  source: resume
+  source_ref: "../Career-Ops/cv.md:28"
+  statement: "AVAJet writes state changes to an HMAC SHA-256 hash chain with actor, entity, action, and before/after diff."
+  kind: proprietary
+  metric: audit_chain_integrity
+  metric_definition: "Whether each audit record contains the stated fields and verifies against the previous record hash."
+  direction: higher_is_better
+  baseline: "unlinked audit records"
+  candidate: "HMAC SHA-256 chained records"
+  workloads: [state_mutating_write, tamper_check]
+  repetitions: 5
+  status: unverified
+  proprietary: true
+  verification: "Proprietary AVAJet item. Do not publish evidence or source details. Resume wording is not independently verified in this worktree."
+
+# CanvasSync W1 documentation coverage. Each row preserves one assertion or one
+# numeric value; documentation targets are not treated as measurements.
+- id: canvassync-doc-canvas-60fps
+  project: canvassync
+  source: docs
+  source_ref: "../Canvassync/docs/architecture-canvas-engine.md:5"
+  statement: "The canvas engine is intended to maintain 60+ FPS under heavy load."
+  kind: comparative
+  metric: canvas_frame_rate_fps
+  metric_definition: "Observed rendered frames per second under a named heavy-load shape workload."
+  direction: higher_is_better
+  baseline: "not applicable; documentation goal"
+  candidate: "current canvas-engine build"
+  workloads: [heavy_canvas_load]
+  repetitions: 5
+  status: unverified
+  verification: "The 60+ FPS value is a documentation expectation at the cited line, not a measured result."
+
+- id: canvassync-doc-canvas-map-lookup
+  project: canvassync
+  source: docs
+  source_ref: "../Canvassync/docs/architecture-canvas-engine.md:23"
+  statement: "Canvas shapes are stored in a Map for O(1) lookups and updates."
+  kind: code_fact
+  metric: shape_store_lookup_complexity
+  metric_definition: "Implementation data structure and observed lookup/update behavior for shape IDs."
+  direction: exact_match
+  baseline: "not applicable"
+  candidate: "canvas-engine store"
+  workloads: [shape_lookup, shape_update]
+  repetitions: 1
+  status: unverified
+  verification: "The Map/O(1) assertion is documented at the cited line; no source-code corroboration or benchmark is promoted here."
+
+- id: canvassync-doc-canvas-raf-pipeline
+  project: canvassync
+  source: docs
+  source_ref: "../Canvassync/docs/architecture-canvas-engine.md:27-35"
+  statement: "The rendering loop uses requestAnimationFrame and clears, grids, draws shapes, draws selection, and draws multi-user presence in that order."
+  kind: behavior
+  metric: rendering_pipeline_order
+  metric_definition: "Whether one frame executes the five documented rendering stages in the documented order."
+  direction: exact_match
+  baseline: "not applicable"
+  candidate: "canvas-engine renderer"
+  workloads: [render_frame]
+  repetitions: 1
+  status: unverified
+  verification: "The five-stage pipeline is a documentation assertion at the cited lines; runtime ordering is not independently verified here."
+
+- id: canvassync-doc-canvas-roughjs-cache
+  project: canvassync
+  source: docs
+  source_ref: "../Canvassync/docs/architecture-canvas-engine.md:39-42"
+  statement: "RoughJS sets are cached per shape and invalidated when width, height, or roughness changes."
+  kind: behavior
+  metric: roughjs_cache_invalidation
+  metric_definition: "Whether a shape's cached RoughSet is reused until one of the three documented properties changes."
+  direction: exact_match
+  baseline: "recompute every frame"
+  candidate: "per-shape RoughSet cache"
+  workloads: [unchanged_shape,_geometry_change,roughness_change]
+  repetitions: 1
+  status: unverified
+  verification: "The cache rule is documented at the cited lines; no code-level verification is claimed."
+
+- id: canvassync-doc-canvas-tools
+  project: canvassync
+  source: docs
+  source_ref: "../Canvassync/docs/architecture-canvas-engine.md:51-56"
+  statement: "The interaction API exposes AttachEventsController methods and nine active tools: select, rect, circle, rhombus, line, arrow, text, freehand, and eraser."
+  kind: code_fact
+  metric: interaction_tool_count
+  metric_definition: "Count of named active tools in the documented interaction API."
+  direction: exact_match
+  baseline: "not applicable"
+  candidate: "documented canvas-engine interaction API"
+  workloads: [tool_registry]
+  repetitions: 1
+  status: unverified
+  verification: "The controller and nine-tool list are documented at the cited lines; no source-code corroboration is claimed."
+
+- id: canvassync-doc-db-states
+  project: canvassync
+  source: docs
+  source_ref: "../Canvassync/docs/architecture-db-resilience.md:18-24"
+  statement: "The circuit breaker has CLOSED, OPEN, and HALF-OPEN states, with a 60-second failure window, five-failure open threshold, 30-second cooldown, and two successful probes to close."
+  kind: code_fact
+  metric: circuit_state_configuration
+  metric_definition: "Exact state names and separately documented failure window, open threshold, cooldown, and close-probe count."
+  direction: exact_match
+  baseline: "not applicable"
+  candidate: "documented DB circuit breaker"
+  workloads: [configuration_read]
+  repetitions: 1
+  status: unverified
+  verification: "The four numeric/state assertions are documentation values at the cited lines; runtime transition behavior is unmeasured."
+
+- id: canvassync-doc-db-transient-codes
+  project: canvassync
+  source: docs
+  source_ref: "../Canvassync/docs/architecture-db-resilience.md:26-32"
+  statement: "The retry filter includes Prisma codes P1001, P1002, P1008, P1017, P2024 and PostgreSQL codes 40001 and 53300."
+  kind: code_fact
+  metric: transient_error_code_allowlist
+  metric_definition: "Exact membership of the documented retryable Prisma and PostgreSQL error-code sets."
+  direction: exact_match
+  baseline: "not applicable"
+  candidate: "documented retry filter"
+  workloads: [configuration_read]
+  repetitions: 1
+  status: unverified
+  verification: "The allowlist is documented at the cited line; no code-level corroboration is claimed."
+
+- id: canvassync-doc-db-backoff
+  project: canvassync
+  source: docs
+  source_ref: "../Canvassync/docs/architecture-db-resilience.md:30-32"
+  statement: "Retry delay doubles from a 75 ms base and the default retry limit is three attempts."
+  kind: code_fact
+  metric: db_retry_configuration
+  metric_definition: "Documented base delay, exponential multiplier, and maximum attempt count."
+  direction: exact_match
+  baseline: "not applicable"
+  candidate: "documented retry configuration"
+  workloads: [configuration_read]
+  repetitions: 1
+  status: unverified
+  verification: "The 75 ms and three-attempt values are documentation values; no retry timing measurement is claimed."
+
+- id: canvassync-doc-db-503-retry-after
+  project: canvassync
+  source: docs
+  source_ref: "../Canvassync/docs/architecture-db-resilience.md:34-39"
+  statement: "An open circuit maps to HTTP 503 and returns a Retry-After header."
+  kind: behavior
+  metric: open_circuit_http_mapping
+  metric_definition: "Whether an open circuit produces HTTP 503 and a Retry-After response header."
+  direction: exact_match
+  baseline: "not applicable"
+  candidate: "documented fail-fast mapping"
+  workloads: [open_circuit_request]
+  repetitions: 1
+  status: unverified
+  verification: "The mapping is documented at the cited lines; fault-injection behavior is not measured."
+
+- id: canvassync-doc-db-process-local
+  project: canvassync
+  source: docs
+  source_ref: "../Canvassync/docs/architecture-db-resilience.md:46-50"
+  statement: "Circuit-breaker state is process-local, so ten API instances may have independent states."
+  kind: behavior
+  metric: circuit_state_scope
+  metric_definition: "Whether breaker state is isolated per process and independent across the documented ten-instance example."
+  direction: exact_match
+  baseline: "not applicable"
+  candidate: "process-local breaker"
+  workloads: [multi_instance_faults]
+  repetitions: 1
+  status: unverified
+  verification: "The process-local scope and ten-instance example are documentation assertions; no multi-process test is claimed."
+
+- id: canvassync-doc-monorepo-stack
+  project: canvassync
+  source: docs
+  source_ref: "../Canvassync/docs/architecture-monorepo-strategy.md:3-5"
+  statement: "CanvasSync uses a Turborepo and PNPM Workspaces monorepo with shared rendering, protocol, and database-resilience logic."
+  kind: code_fact
+  metric: monorepo_tooling_and_shared_logic
+  metric_definition: "Presence of the documented build tools and shared logic domains."
+  direction: exact_match
+  baseline: "not applicable"
+  candidate: "documented monorepo structure"
+  workloads: [configuration_read]
+  repetitions: 1
+  status: unverified
+  verification: "The tooling and shared-logic assertion is documentation-only at the cited lines; no code provenance is promoted."
+
+- id: canvassync-doc-monorepo-cache
+  project: canvassync
+  source: docs
+  source_ref: "../Canvassync/docs/architecture-monorepo-strategy.md:28-33"
+  statement: "Turborepo remote caching is described as reducing CI times by up to 80% and tasks run in parallel across apps and packages."
+  kind: comparative
+  metric: ci_duration_change_percent
+  metric_definition: "Measured CI duration change with remote cache enabled under the same graph, runner, and cache state."
+  direction: lower_is_better
+  baseline: "same-build CI with cache disabled"
+  candidate: "same-build CI with remote cache enabled"
+  workloads: [full_ci]
+  repetitions: 5
+  status: unverified
+  verification: "The 80% value is a documentation claim, not a measurement in this ledger; parallelism is likewise not benchmarked."
+
+- id: canvassync-doc-monorepo-four-apps
+  project: canvassync
+  source: docs
+  source_ref: "../Canvassync/docs/architecture-monorepo-strategy.md:37-40"
+  statement: "PNPM content-addressable storage is described in the context of four apps and shared dependencies stored once."
+  kind: code_fact
+  metric: workspace_app_and_dependency_storage_topology
+  metric_definition: "Count of documented apps and whether shared dependencies use one content-addressable store entry."
+  direction: exact_match
+  baseline: "not applicable"
+  candidate: "documented PNPM workspace"
+  workloads: [configuration_read]
+  repetitions: 1
+  status: unverified
+  verification: "The four-app/storage assertion is documentation-only at the cited lines; disk inspection is not claimed."
+
+- id: canvassync-doc-overview-services
+  project: canvassync
+  source: docs
+  source_ref: "../Canvassync/docs/architecture-overview.md:17-48"
+  statement: "The component map contains four application services, six shared packages, and PostgreSQL, Redis, and RabbitMQ infrastructure with the documented connections."
+  kind: code_fact
+  metric: architecture_component_topology
+  metric_definition: "Count of named application services, shared packages, infrastructure services, and documented transport edges."
+  direction: exact_match
+  baseline: "not applicable"
+  candidate: "documented Canvas.io component map"
+  workloads: [configuration_read]
+  repetitions: 1
+  status: unverified
+  verification: "The component counts and edges are read from the cited Mermaid map; no source-code corroboration is claimed."
+
+- id: canvassync-doc-overview-storage-roles
+  project: canvassync
+  source: docs
+  source_ref: "../Canvassync/docs/architecture-overview.md:51-69"
+  statement: "PostgreSQL is the long-term store, Redis is real-time state authority, RabbitMQ is durable messaging, and the shared DB client provides retries plus a 503 circuit breaker."
+  kind: behavior
+  metric: storage_and_resilience_roles
+  metric_definition: "Whether each named service has the documented storage/messaging/resilience role."
+  direction: exact_match
+  baseline: "not applicable"
+  candidate: "documented architecture roles"
+  workloads: [configuration_read]
+  repetitions: 1
+  status: unverified
+  verification: "These are documentation assertions at the cited lines; runtime role verification is not claimed."
+
+- id: canvassync-doc-overview-sync-flow
+  project: canvassync
+  source: docs
+  source_ref: "../Canvassync/docs/architecture-overview.md:71-91"
+  statement: "The documented sync flow uses Redis version checks and snapshots, RabbitMQ cross-node events routed by roomId, actionId deduplication, and monotonic version validation."
+  kind: behavior
+  metric: cross_node_sync_contract
+  metric_definition: "Whether accepted snapshots follow the documented authority, durable delivery, deduplication, and monotonic-version stages."
+  direction: higher_is_better
+  baseline: "memory-only sync"
+  candidate: "Redis plus RabbitMQ sync"
+  workloads: [multi_node_snapshot]
+  repetitions: 5
+  status: unverified
+  verification: "The flow is documented at the cited lines; cross-node execution and convergence are not measured."
+
+- id: canvassync-doc-realtime-redis-keys
+  project: canvassync
+  source: docs
+  source_ref: "../Canvassync/docs/architecture-realtime-sync.md:17-23"
+  statement: "Redis uses one room version key, one serialized full-snapshot key, and one room Pub/Sub channel."
+  kind: code_fact
+  metric: redis_room_key_contract
+  metric_definition: "Presence and role of the three documented Redis room data structures."
+  direction: exact_match
+  baseline: "not applicable"
+  candidate: "documented Redis sync contract"
+  workloads: [configuration_read]
+  repetitions: 1
+  status: unverified
+  verification: "The three key/channel assertions are documentation values at the cited lines; code provenance is not claimed."
+
+- id: canvassync-doc-realtime-rabbit-partition
+  project: canvassync
+  source: docs
+  source_ref: "../Canvassync/docs/architecture-realtime-sync.md:25-30"
+  statement: "RabbitMQ uses durable per-node queues and topic routing with room.partition.<roomId % 16>."
+  kind: code_fact
+  metric: rabbitmq_partition_contract
+  metric_definition: "Whether each node has a durable queue and room events use the documented modulo-16 routing key."
+  direction: exact_match
+  baseline: "not applicable"
+  candidate: "documented RabbitMQ sync contract"
+  workloads: [configuration_read]
+  repetitions: 1
+  status: unverified
+  verification: "The durable-queue and modulo-16 assertions are documentation-only at the cited lines; no source-code verification is claimed."
+
+- id: canvassync-doc-realtime-drag-timing
+  project: canvassync
+  source: docs
+  source_ref: "../Canvassync/docs/architecture-realtime-sync.md:62-67"
+  statement: "The document describes browser drawing events at about 8 ms/120 Hz, normal snapshot throttling at 16–32 ms, and Drag Burst entry after consecutive snapshots within 120 ms."
+  kind: comparative
+  metric: sync_send_interval_ms
+  metric_definition: "Observed event cadence, normal send interval, and drag-burst detection boundary under a named browser workload."
+  direction: lower_is_better
+  baseline: "normal sync mode"
+  candidate: "Drag Burst mode"
+  workloads: [drag_burst]
+  repetitions: 5
+  status: unverified
+  verification: "The 8 ms/120 Hz, 16–32 ms, and 120 ms values are documentation assertions, not measurements."
+
+- id: canvassync-doc-realtime-rabbit-loss
+  project: canvassync
+  source: docs
+  source_ref: "../Canvassync/docs/architecture-realtime-sync.md:25-30"
+  statement: "The document uses a 500 ms node-disconnection example to explain why Redis Pub/Sub alone is not durable."
+  kind: behavior
+  metric: pubsub_event_loss_window_ms
+  metric_definition: "Whether an outage of the documented duration causes a missed Pub/Sub event and whether durable replay recovers it."
+  direction: lower_is_better
+  baseline: "Redis Pub/Sub only"
+  candidate: "Redis Pub/Sub plus RabbitMQ"
+  workloads: [node_disconnect]
+  repetitions: 5
+  status: unverified
+  verification: "The 500 ms example is documentation context; no outage or replay measurement is claimed."
+
+- id: canvassync-doc-realtime-db-polling
+  project: canvassync
+  source: docs
+  source_ref: "../Canvassync/docs/architecture-realtime-sync.md:93-100"
+  statement: "The document contrasts hybrid sync with PostgreSQL LISTEN/NOTIFY, citing an 8 KB payload limit and high primary-store CPU overhead."
+  kind: comparative
+  metric: notification_payload_limit_bytes
+  metric_definition: "Verified payload limit and measured CPU overhead for the stated LISTEN/NOTIFY comparison under an identical workload."
+  direction: lower_is_better
+  baseline: "PostgreSQL LISTEN/NOTIFY"
+  candidate: "Redis plus RabbitMQ"
+  workloads: [cross_node_updates]
+  repetitions: 5
+  status: unverified
+  verification: "The 8 KB and CPU statements are documentation rationale, not a measured comparison."
+
+- id: canvassync-doc-realtime-join-latency
+  project: canvassync
+  source: docs
+  source_ref: "../Canvassync/docs/architecture-realtime-sync.md:102-107"
+  statement: "The document claims in-memory room state can serve Join Room requests in under 5 ms without the primary database."
+  kind: comparative
+  metric: join_room_latency_ms
+  metric_definition: "Client-observed elapsed time from authorized join request to room_joined for a warm in-memory room."
+  direction: lower_is_better
+  baseline: "primary-database join"
+  candidate: "in-memory room cache join"
+  workloads: [warm_room_join]
+  repetitions: 5
+  status: unverified
+  verification: "The <5 ms value is a documentation claim; no timing result is present. C1 remains a same-current-build flag comparison."
+
+- id: canvassync-doc-realtime-future-delta
+  project: canvassync
+  source: docs
+  source_ref: "../Canvassync/docs/architecture-realtime-sync.md:109-111"
+  statement: "For diagrams above 5,000 shapes, the document proposes Binary Delta Sync with Protocol Buffers and up to 95% payload reduction."
+  kind: comparative
+  metric: sync_payload_reduction_percent
+  metric_definition: "Measured byte reduction from full snapshots to binary deltas for a named diagram and edit workload."
+  direction: lower_is_better
+  baseline: "full snapshot sync"
+  candidate: "future Protocol Buffers delta sync"
+  workloads: [large_diagram]
+  repetitions: 5
+  status: unverified
+  verification: "5,000 shapes and 95% are future design values, not measured implementation results."
+
+- id: canvassync-doc-security-jwt
+  project: canvassync
+  source: docs
+  source_ref: "../Canvassync/docs/architecture-security-model.md:7-14"
+  statement: "Authentication uses JWTs in HttpOnly cookies with separate short-lived access and long-lived refresh tokens plus a database tokenVersion."
+  kind: behavior
+  metric: authentication_token_contract
+  metric_definition: "Whether access/refresh token roles, cookie transport, and token-version invalidation follow the documented contract."
+  direction: exact_match
+  baseline: "not applicable"
+  candidate: "documented JWT strategy"
+  workloads: [login, logout_all_devices]
+  repetitions: 1
+  status: unverified
+  verification: "The token contract is documentation-only at the cited lines; no source-code verification is claimed."
+
+- id: canvassync-doc-security-cookie-flags
+  project: canvassync
+  source: docs
+  source_ref: "../Canvassync/docs/architecture-security-model.md:16-22"
+  statement: "The documented cookie controls are HttpOnly, SameSite=Lax, and Secure in production."
+  kind: code_fact
+  metric: cookie_security_flags
+  metric_definition: "Presence of the three documented cookie flags and their stated production scope."
+  direction: exact_match
+  baseline: "not applicable"
+  candidate: "documented cookie configuration"
+  workloads: [configuration_read]
+  repetitions: 1
+  status: unverified
+  verification: "The three flags are documentation assertions at the cited lines; no code-level verification is claimed."
+
+- id: canvassync-doc-security-access-layers
+  project: canvassync
+  source: docs
+  source_ref: "../Canvassync/docs/architecture-security-model.md:36-50"
+  statement: "Room access has request and membership layers, and WebSocket authorization performs JWT extraction, identity verification, membership checking, and broadcast authorization."
+  kind: behavior
+  metric: room_authorization_steps
+  metric_definition: "Whether the two access-record layers and four documented WebSocket authorization stages occur for a join."
+  direction: exact_match
+  baseline: "not applicable"
+  candidate: "documented room authorization flow"
+  workloads: [authorized_join, unauthorized_join]
+  repetitions: 1
+  status: unverified
+  verification: "The two layers and four steps are documentation assertions; authorization behavior is not measured."
+
+- id: canvassync-doc-security-monotonic
+  project: canvassync
+  source: docs
+  source_ref: "../Canvassync/docs/architecture-security-model.md:59-64"
+  statement: "Redis accepts an incoming snapshot only when its version exactly equals current_version, and peers broadcast only strictly newer snapshots."
+  kind: behavior
+  metric: stale_snapshot_rejection
+  metric_definition: "Fraction of stale or non-monotonic snapshots rejected before broadcast."
+  direction: lower_is_better
+  baseline: "unconditional snapshot acceptance"
+  candidate: "exact-version plus monotonic guards"
+  workloads: [stale_version, replayed_version]
+  repetitions: 5
+  status: unverified
+  verification: "The exact/strictly-newer rules are documented at the cited lines; no fault-injection result is claimed."
+
+- id: canvassync-doc-walkthrough-apps
+  project: canvassync
+  source: docs
+  source_ref: "../Canvassync/docs/codebase-walkthrough.md:5-24"
+  statement: "The walkthrough lists four applications and eight core/shared packages with the named responsibilities."
+  kind: code_fact
+  metric: walkthrough_component_count
+  metric_definition: "Count of documented apps and packages and whether each responsibility is present."
+  direction: exact_match
+  baseline: "not applicable"
+  candidate: "documented codebase layout"
+  workloads: [configuration_read]
+  repetitions: 1
+  status: unverified
+  verification: "The four-app/eight-package inventory is documentation-only at the cited lines."
+
+- id: canvassync-doc-walkthrough-engine
+  project: canvassync
+  source: docs
+  source_ref: "../Canvassync/docs/codebase-walkthrough.md:28-49"
+  statement: "The walkthrough describes a React-decoupled canvas engine targeting 60+ FPS, four renderer/store/geometry/events modules, and three useCanvasSync behaviors."
+  kind: behavior
+  metric: frontend_sync_contract
+  metric_definition: "Observed frame rate plus presence of the four modules and three documented sync-hook behaviors."
+  direction: higher_is_better
+  baseline: "React-coupled rendering and unbatched sync"
+  candidate: "decoupled engine with useCanvasSync"
+  workloads: [canvas_render, remote_hydration, drag_burst]
+  repetitions: 5
+  status: unverified
+  verification: "60+ FPS and the module/hook descriptions are documentation assertions; no browser measurement is claimed."
+
+- id: canvassync-doc-core-shape-contract
+  project: canvassync
+  source: docs
+  source_ref: "../Canvassync/docs/core-concepts.md:13-36"
+  statement: "Shapes use a JSON-compatible schema with id, type, x, y, width, height, and props fields, and the format is shared across PostgreSQL, Redis, and WebSockets."
+  kind: code_fact
+  metric: shape_schema_and_transport_contract
+  metric_definition: "Presence of the seven documented fields and use of the same shape representation across the three named transports/stores."
+  direction: exact_match
+  baseline: "not applicable"
+  candidate: "documented Shape contract"
+  workloads: [shape_persistence, snapshot_transport]
+  repetitions: 1
+  status: unverified
+  verification: "The schema and cross-stack assertion are documentation-only at the cited lines."
+
+- id: canvassync-doc-core-room-identifiers
+  project: canvassync
+  source: docs
+  source_ref: "../Canvassync/docs/core-concepts.md:38-50"
+  statement: "Rooms use an integer roomId for PostgreSQL and routing and a slug unique per adminId for public URLs."
+  kind: code_fact
+  metric: room_identifier_contract
+  metric_definition: "Exact identifier types, routing role, and compound uniqueness scope described for roomId and slug."
+  direction: exact_match
+  baseline: "not applicable"
+  candidate: "documented room identifier model"
+  workloads: [room_lookup, slug_lookup]
+  repetitions: 1
+  status: unverified
+  verification: "The integer/compound-unique assertions are documentation-only at the cited lines."
+
+- id: canvassync-doc-core-room-resolution
+  project: canvassync
+  source: docs
+  source_ref: "../Canvassync/docs/core-concepts.md:52-58"
+  statement: "URL resolution extracts userHandle and slug, resolves them to roomId, then uses roomId for hot WebSocket and chat operations."
+  kind: behavior
+  metric: room_resolution_steps
+  metric_definition: "Whether the documented three-stage URL-to-roomId resolution flow occurs."
+  direction: exact_match
+  baseline: "not applicable"
+  candidate: "documented room resolution flow"
+  workloads: [public_room_url]
+  repetitions: 1
+  status: unverified
+  verification: "The three stages are documentation assertions at the cited lines; route behavior is not measured."
+
+- id: canvassync-doc-developer-prereqs
+  project: canvassync
+  source: docs
+  source_ref: "../Canvassync/docs/developer-guide.md:5-12"
+  statement: "The development guide requires Node.js 18+, PNPM 10+, and Docker Desktop for PostgreSQL, Redis, and RabbitMQ."
+  kind: code_fact
+  metric: development_prerequisite_contract
+  metric_definition: "Exact minimum versions and infrastructure services listed by the guide."
+  direction: exact_match
+  baseline: "not applicable"
+  candidate: "documented development prerequisites"
+  workloads: [configuration_read]
+  repetitions: 1
+  status: unverified
+  verification: "The version/service requirements are documentation assertions at the cited lines."
+
+- id: canvassync-doc-developer-env
+  project: canvassync
+  source: docs
+  source_ref: "../Canvassync/docs/developer-guide.md:29-42"
+  statement: "The guide requires JWT_SECRET, DATABASE_URL, GEMINI_API_KEY, and INTERNAL_SECRET environment variables."
+  kind: code_fact
+  metric: required_environment_variables
+  metric_definition: "Count and names of required environment variables in the documented setup."
+  direction: exact_match
+  baseline: "not applicable"
+  candidate: "documented development environment"
+  workloads: [configuration_read]
+  repetitions: 1
+  status: unverified
+  verification: "The four variables are documentation assertions at the cited lines; startup validation is not tested here."
+
+- id: canvassync-doc-developer-endpoints
+  project: canvassync
+  source: docs
+  source_ref: "../Canvassync/docs/developer-guide.md:53-63"
+  statement: "The guide assigns localhost ports 3000 to Web, 3001/api/v1 to HTTP, and 8080 to WebSocket."
+  kind: code_fact
+  metric: local_service_endpoints
+  metric_definition: "Exact documented host, ports, and path/scheme for the three local services."
+  direction: exact_match
+  baseline: "not applicable"
+  candidate: "documented local development endpoints"
+  workloads: [configuration_read]
+  repetitions: 1
+  status: unverified
+  verification: "The three endpoints are documentation assertions at the cited lines; no services were started for this ledger update."
+
+- id: canvassync-doc-persistence-storage
+  project: canvassync
+  source: docs
+  source_ref: "../Canvassync/docs/persistence-layer.md:5-12"
+  statement: "PostgreSQL stores shapes, chat, and metadata; shape props use JSONB; room version is an integer incremented for each accepted bulk update."
+  kind: code_fact
+  metric: persistence_schema_contract
+  metric_definition: "Presence of the named PostgreSQL/JSONB fields and documented room-version update rule."
+  direction: exact_match
+  baseline: "not applicable"
+  candidate: "documented persistence model"
+  workloads: [bulk_shape_update]
+  repetitions: 1
+  status: unverified
+  verification: "The storage/type/version assertions are documentation-only at the cited lines."
+
+- id: canvassync-doc-persistence-soft-delete
+  project: canvassync
+  source: docs
+  source_ref: "../Canvassync/docs/persistence-layer.md:14-20"
+  statement: "Shape deletion is soft deletion via deleted=true and reads filter deleted=true rows."
+  kind: behavior
+  metric: soft_delete_read_contract
+  metric_definition: "Fraction of deleted shapes excluded from reads without a SQL DELETE operation."
+  direction: exact_match
+  baseline: "hard delete"
+  candidate: "deleted flag plus read filtering"
+  workloads: [shape_delete, shape_read]
+  repetitions: 1
+  status: unverified
+  verification: "The soft-delete rule is documented at the cited lines; no database behavior test is claimed."
+
+- id: canvassync-doc-persistence-recovery
+  project: canvassync
+  source: docs
+  source_ref: "../Canvassync/docs/persistence-layer.md:22-31"
+  statement: "Recovery checks Redis first with a documented <2 ms path, rebuilds from non-deleted PostgreSQL shapes on a miss, repopulates Redis, then hydrates the client via room_joined."
+  kind: comparative
+  metric: recovery_latency_ms
+  metric_definition: "Client-observed recovery latency for Redis hit and cold PostgreSQL rebuild, plus correctness of repopulation and hydration."
+  direction: lower_is_better
+  baseline: "cold PostgreSQL rebuild"
+  candidate: "Redis snapshot hit"
+  workloads: [redis_hit, redis_miss]
+  repetitions: 5
+  status: unverified
+  verification: "The <2 ms value and four-stage recovery flow are documentation assertions; no timing or correctness measurement is claimed."
+
+- id: canvassync-doc-persistence-queue
+  project: canvassync
+  source: docs
+  source_ref: "../Canvassync/docs/persistence-layer.md:33-38"
+  statement: "Final snapshots are enqueued to RabbitMQ and a background worker performs a batch upsert in PostgreSQL rather than writing on every mouse movement."
+  kind: behavior
+  metric: persistence_write_decoupling
+  metric_definition: "Whether final snapshots use the documented queue/worker batch-upsert path and avoid per-mouse-movement writes."
+  direction: exact_match
+  baseline: "write every mouse movement"
+  candidate: "RabbitMQ batch persistence"
+  workloads: [dragging, final_snapshot]
+  repetitions: 5
+  status: unverified
+  verification: "The queue/worker claim is documentation-only at the cited lines; write counts are not measured."
+
+- id: canvassync-doc-ws-redis-lifecycle
+  project: canvassync
+  source: docs
+  source_ref: "../Canvassync/docs/ws-redis-sync-architecture.md:33-43"
+  statement: "The documented snapshot lifecycle has seven stages: validate/version-check, atomic Redis update, RabbitMQ and Pub/Sub publication, node consume/dedupe/version-check, local broadcast, and sync_error recovery on mismatch."
+  kind: behavior
+  metric: room_snapshot_lifecycle
+  metric_definition: "Whether the seven documented stages occur and stale clients receive the latest authoritative snapshot."
+  direction: higher_is_better
+  baseline: "not applicable"
+  candidate: "documented Redis/RabbitMQ sync lifecycle"
+  workloads: [matching_version, version_mismatch]
+  repetitions: 5
+  status: unverified
+  verification: "The seven stages are documented at the cited lines; no end-to-end execution or convergence result is claimed."
+
+- id: canvassync-doc-ws-redis-contract
+  project: canvassync
+  source: docs
+  source_ref: "../Canvassync/docs/ws-redis-sync-architecture.md:45-59"
+  statement: "Redis provides one authoritative room version and Pub/Sub fast-path; RabbitMQ provides durable queueing, room-partition routing, prefetch backpressure, and replay."
+  kind: behavior
+  metric: transport_role_contract
+  metric_definition: "Whether each of the six documented transport roles is implemented and observable under multi-node operation."
+  direction: exact_match
+  baseline: "memory-only sync"
+  candidate: "Redis plus RabbitMQ transport split"
+  workloads: [multi_node_sync, node_reconnect]
+  repetitions: 5
+  status: unverified
+  verification: "The role descriptions are documentation assertions at the cited lines; no multi-node measurement is claimed."
+
+- id: canvassync-doc-ws-redis-identifiers
+  project: canvassync
+  source: docs
+  source_ref: "../Canvassync/docs/ws-redis-sync-architecture.md:61-76"
+  statement: "Redis uses version, snapshot, and room-channel keys; RabbitMQ uses the canvas.room.events exchange, room.partition.<n> routing, per-node durable queues, and canvas_snapshot_broadcast payloads."
+  kind: code_fact
+  metric: sync_identifier_contract
+  metric_definition: "Exact documented key, exchange, routing-key, queue, and payload identifiers."
+  direction: exact_match
+  baseline: "not applicable"
+  candidate: "documented sync identifiers"
+  workloads: [configuration_read]
+  repetitions: 1
+  status: unverified
+  verification: "The identifiers are documentation-only at the cited lines; no source-code corroboration is claimed."
+
+- id: canvassync-doc-ws-scaling-limits
+  project: canvassync
+  source: docs
+  source_ref: "../Canvassync/docs/ws-redis-sync-architecture.md:97-114"
+  statement: "The document lists six horizontal-scaling enablers and three current limits: full snapshots are expensive, per-room events remain full snapshots, and full-room replacement can bottleneck under load."
+  kind: comparative
+  metric: multi_node_sync_capacity
+  metric_definition: "Measured fan-out, payload, and persistence capacity under the documented full-snapshot workload."
+  direction: higher_is_better
+  baseline: "not applicable; design description"
+  candidate: "current Redis/RabbitMQ implementation"
+  workloads: [multi_node_room, high_edit_rate]
+  repetitions: 5
+  status: unverified
+  verification: "The enabler/limitation counts and high-load statements are documentation assertions; no capacity result is claimed."
+
+- id: canvassync-doc-ws-failure-behavior
+  project: canvassync
+  source: docs
+  source_ref: "../Canvassync/docs/ws-redis-sync-architecture.md:116-120"
+  statement: "The documented failure behavior rejects new writes without Redis authority, catches missed Pub/Sub events through RabbitMQ replay, and rebuilds a missing snapshot from PostgreSQL."
+  kind: behavior
+  metric: sync_failure_recovery
+  metric_definition: "Whether each of the three documented failure cases produces the stated safety or recovery behavior."
+  direction: higher_is_better
+  baseline: "no durable fallback"
+  candidate: "Redis authority plus RabbitMQ/PostgreSQL recovery"
+  workloads: [redis_unavailable, missed_pubsub, missing_snapshot]
+  repetitions: 5
+  status: unverified
+  verification: "The three cases are documentation assertions; fault injection is not measured."
+
+- id: canvassync-doc-ws-implemented-status
+  project: canvassync
+  source: docs
+  source_ref: "../Canvassync/docs/ws-redis-sync-architecture.md:129-150"
+  statement: "The document marks metrics logging, payload-size/rate guardrails, latency buckets, durable publication, per-node queue prefetch, actionId dedupe, and monotonic guards as implemented."
+  kind: code_fact
+  metric: documented_sync_feature_status
+  metric_definition: "Presence of the eight separately named implementation-status items in the current documented phase status."
+  direction: exact_match
+  baseline: "not applicable"
+  candidate: "documented Phase 2A/2B status"
+  workloads: [configuration_read]
+  repetitions: 1
+  status: unverified
+  verification: "The eight status assertions are documentation-only at the cited lines; source-code corroboration and runtime measurements are not claimed."
