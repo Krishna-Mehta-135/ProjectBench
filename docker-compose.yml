@@ -20,8 +20,9 @@ services:
     environment:
       DATABASE_URL: postgres://metrics:metrics-local-only@postgres:5432/metrics
       ARTIFACT_ROOT: /var/lib/metrics/artifacts
-      METRICS_OPERATOR_TOKEN: ${METRICS_OPERATOR_TOKEN:-}
-    ports: ["8080:8080"]
+      METRICS_OPERATOR_TOKEN: ${METRICS_OPERATOR_TOKEN:?Set METRICS_OPERATOR_TOKEN for the Docker API}
+      METRICS_BIND_ADDR: 0.0.0.0:8080
+    ports: ["127.0.0.1:8080:8080"]
     volumes: [metrics-artifacts:/var/lib/metrics/artifacts]
     depends_on:
       postgres:

@@ -77,6 +77,10 @@ jobs:
           npm ci --package-lock=true --no-audit --no-fund
       - run: |
           cd "$GITHUB_WORKSPACE/apps/web"
+          npm run lint
+          npm run format:check
+      - run: |
+          cd "$GITHUB_WORKSPACE/apps/web"
           npm run build
       - run: |
           cd "$GITHUB_WORKSPACE/apps/web"
