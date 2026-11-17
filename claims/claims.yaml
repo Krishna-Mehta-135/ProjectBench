@@ -31,6 +31,9 @@
   candidate: "the same current build with the Redis-backed join path enabled by the same experiment flag"
   workloads: [cold-start-100-shapes, cold-start-1000-shapes, cold-start-5000-shapes]
   repetitions: 30
+  target_percent: 60
+  tolerance_percent: 5
+  reproduce_command: "make bench-w4-up && make bench-w4"
   status: measuring
   verification: "At 76a5fe0^, a cold join performed one Postgres shape.findMany and returned room_joined; there was no polling loop. W4 draft PR #86 measured the direct-read baseline against a warm Redis snapshot in the same current build. Results await W5 ingest and verdict."
 
@@ -175,6 +178,9 @@
   candidate: "coalesce 16 ms"
   workloads: [one_typist, five_typists, paste_burst, ai_stream]
   repetitions: 5
+  target_percent: 90
+  tolerance_percent: 5
+  reproduce_command: "make bench-knowdex-coalesce"
   status: measuring
   verification: "W3 PR #53 measured one typist, five typists, and AI stream. Five typists showed 80% fewer update frames; one typist and AI stream showed 0% median reduction. The paste run is invalid because generator CPU exceeded 70% (issue #54). The generic 90% wording is unsupported."
 
