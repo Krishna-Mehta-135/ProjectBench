@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <rect width="1200" height="630" fill="#151713" />
+  <path d="M0 520 315 370l220 100 290-270 375 180" fill="none" stroke="#d9ef60" stroke-opacity=".65" stroke-width="3" />
+  <path d="M0 570 330 420l205 82 300-265 365 180" fill="none" stroke="#d9ef60" stroke-opacity=".25" stroke-width="2" />
+  <circle cx="825" cy="200" r="10" fill="#d9ef60" />
+  <text x="84" y="145" fill="#d9ef60" font-family="monospace" font-size="24" letter-spacing="5">REPRODUCIBLE SOFTWARE EVIDENCE</text>
+  <text x="78" y="302" fill="#f4f2e9" font-family="system-ui, sans-serif" font-size="84" font-weight="700" letter-spacing="-5">ProjectBench</text>
+  <text x="84" y="370" fill="#b9beb1" font-family="system-ui, sans-serif" font-size="30">Make engineering claims measurable.</text>
+</svg>
