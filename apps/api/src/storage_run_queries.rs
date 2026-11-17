@@ -1,6 +1,6 @@
 use crate::storage::{PgRepository, StorageError};
-use crate::*;
 use crate::timeseries::TimeBucket;
+use crate::*;
 
 #[derive(sqlx::FromRow)]
 struct DbTimeBucket {
