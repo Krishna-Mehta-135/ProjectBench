@@ -1,9 +1,13 @@
 #![forbid(unsafe_code)]
 
 pub mod artifacts;
+pub mod claims;
+mod claims_api;
+mod claims_storage;
 pub mod lifecycle;
 pub mod orchestration;
 pub mod report;
+pub mod results;
 pub mod runner;
 pub mod storage;
 pub mod timeseries;
@@ -68,6 +72,13 @@ pub fn router(state: AppState) -> Router {
         .route("/health", get(health))
         .route("/ready", get(ready))
         .route("/api/v1/projects", get(list_projects))
+        .route("/api/v1/claims", get(claims_api::list_claims))
+        .route("/api/v1/claims/{claim_id}", get(claims_api::get_claim))
+        .route(
+            "/api/v1/claims/{claim_id}/results",
+            get(claims_api::list_results),
+        )
+        .route("/api/v1/results", post(claims_api::post_result))
         .route("/api/v1/projects", post(create_project))
         .route(
             "/api/v1/projects/{project_id}",
@@ -1574,6 +1585,8 @@ pub enum ApiError {
     Conflict,
     #[error("run execution failed: {0}")]
     Execution(String),
+    #[error("invalid benchmark result: {0}")]
+    InvalidResult(String),
 }
 
 impl IntoResponse for ApiError {
@@ -1604,9 +1617,11 @@ pub async fn serve(addr: SocketAddr) -> anyhow::Result<()> {
     };
     let listener = tokio::net::TcpListener::bind(addr).await?;
     let repository = match std::env::var("DATABASE_URL") {
-        Ok(database_url) => Some(Arc::new(
-            storage::PgRepository::connect(&database_url).await?,
-        )),
+        Ok(database_url) => {
+            let repository = storage::PgRepository::connect(&database_url).await?;
+            repository.sync_claims(&claims::bundled_claims()?).await?;
+            Some(Arc::new(repository))
+        }
         Err(_) => None,
     };
     let mut state = AppState::new(policy, repository);

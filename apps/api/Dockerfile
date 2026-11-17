@@ -3,6 +3,7 @@ WORKDIR /src
 COPY Cargo.toml Cargo.toml
 COPY Cargo.lock Cargo.lock
 COPY apps/api apps/api
+COPY claims claims
 RUN cargo build --locked --release -p metrics-api
 
 FROM debian:bookworm-slim

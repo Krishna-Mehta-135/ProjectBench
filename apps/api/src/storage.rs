@@ -17,7 +17,7 @@ pub enum StorageError {
 
 #[derive(Clone)]
 pub struct PgRepository {
-    pool: PgPool,
+    pub(crate) pool: PgPool,
 }
 
 #[derive(sqlx::FromRow)]
