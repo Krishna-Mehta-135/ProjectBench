@@ -41,6 +41,7 @@ pub struct EvidenceSample<'a> {
     pub workload: &'a str,
     pub repetition: u32,
     pub value: f64,
+    pub unit: &'a str,
     pub started_at: &'a str,
 }
 
@@ -98,6 +99,7 @@ pub fn build_evidence<'a>(
                 workload: &result.workload,
                 repetition: result.repetition,
                 value: metric.value,
+                unit: &metric.unit,
                 started_at: &result.started_at,
             })
         })
