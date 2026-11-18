@@ -11,12 +11,12 @@
 
 ```sh
 docker compose up -d postgres
-cargo run -p metrics-api
+DATABASE_URL=postgres://metrics:metrics-local-only@127.0.0.1:15432/metrics cargo run -p metrics-api
 ```
 
-For the disposable Compose deployment, run `METRICS_OPERATOR_TOKEN='…' docker compose up -d`. PostgreSQL uses the named `metrics-postgres` volume and API artifacts use `metrics-artifacts`; both survive container recreation until explicitly removed. The sample database password is local-only and must be replaced before any shared deployment.
+For the disposable Compose API deployment, run `docker compose up -d`. The Compose file supplies a loopback-only demo token by default. PostgreSQL is mapped to host port `15432`, and the API is mapped to `18080`; both can be changed in `.env`. PostgreSQL uses the named `metrics-postgres` volume and API artifacts use `metrics-artifacts`; both survive container recreation until explicitly removed. The sample database password and token are local-only and must be replaced before any shared deployment.
 
-The API binds to `0.0.0.0:8080` inside the container/process. The dashboard can be started separately with `cd apps/web && npm ci && npm run dev`.
+The API binds to `0.0.0.0:8080` inside the container and is available from the host at `127.0.0.1:18080`. The web app can be started separately with `cd apps/web && npm ci && npm run dev`; the public site is served at the Vite root and the operator view is available at `/app` in development.
 
 ## Operator authentication
 
@@ -59,4 +59,3 @@ Run the API as a non-root container user in a production image, place PostgreSQL
 ## Canvassync approval gate
 
 Before any non-local run, confirm the exact HTTPS origin, dedicated test account, seeded room, VU count, duration, think time, hard runtime, and stop conditions. The first proposed workload remains one VU for 60 seconds with two seconds of think time. Do not store any of those secrets in Git.
-
