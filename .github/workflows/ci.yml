@@ -86,3 +86,16 @@ jobs:
           cd "$GITHUB_WORKSPACE/apps/web"
           npm test -- --run
 
+  demo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run the clean-checkout Docker demo
+        run: |
+          set -o pipefail
+          make demo | tee "$RUNNER_TEMP/projectbench-demo.log"
+          grep -F "VERDICT: verified" "$RUNNER_TEMP/projectbench-demo.log"
+      - name: Stop the demo stack
+        if: always()
+        run: make demo-down

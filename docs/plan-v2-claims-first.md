@@ -1,6 +1,6 @@
 # ProjectBench and portfolio: plan v2 (claims first, one week)
 
-Prepared 2026-11-15 for implementation agents. This is the single source of truth. It replaces `docs/portfolio-metrics-handoff.md` and `docs/agent-handoff-plan.md`; use those only for local run commands.
+Prepared 2026-11-15 for implementation agents. This is the single source of truth. It replaces the archived `docs/archive/portfolio-metrics-handoff.md` and `docs/archive/agent-handoff-plan.md`.
 
 ## 0. Brief
 

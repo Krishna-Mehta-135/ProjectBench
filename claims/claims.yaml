@@ -2,6 +2,23 @@
 # Source paths are relative to the ProjectBench workspace parent unless noted.
 # A claim is not publishable evidence until a local, reproducible result exists.
 
+- id: projectbench-demo-health
+  project: projectbench
+  source: docs
+  source_ref: docs/quickstart.md
+  statement: "The bundled demo health endpoint returns a successful response."
+  kind: behavior
+  metric: response_success
+  metric_definition: "One when the local demo endpoint returns HTTP 200 and a valid {status: ok} body; otherwise zero."
+  direction: higher_is_better
+  baseline: "not applicable"
+  candidate: "bundled ProjectBench demo endpoint"
+  workloads: [local_health]
+  repetitions: 5
+  status: unverified
+  verification: "This is a small sample claim used by make demo; each result comes from an actual HTTP request to the local container."
+  behavior_expected_min: 1
+
 - id: canvassync-crdt-at-scale
   project: canvassync
   source: resume

@@ -1,14 +1,18 @@
-# Metrics architecture
+# Architecture
 
-Metrics starts as a self-hostable modular monolith.
+```mermaid
+flowchart TB
+  Ledger[claims/claims.yaml] --> Harness[application-local harness]
+  Harness --> Result[one schema-v1 JSON per repetition]
+  Result --> API[ProjectBench Rust API]
+  API --> DB[(local PostgreSQL)]
+  API --> Verdict[fixed verdict rules]
+  Verdict --> Operator[local operator workflow]
+  Verdict --> Publish[owner-confirmed allowlisted publish]
+  Publish --> Evidence[evidence/*.json]
+  Evidence --> Site[static React site]
+```
 
-- **API:** Rust service using Axum.
-- **Web UI:** TypeScript client kept separate from the API.
-- **Metadata:** PostgreSQL stores projects, environments, scenarios, and run metadata.
-- **Runner:** k6 runs as a controlled external process; Metrics does not implement a load generator.
-- **Artifacts:** raw k6 output and generated reports use a storage interface, initially backed by local disk.
-- **Deployment:** Docker-based local development with an Azure deployment path documented after the local foundation is complete.
+The Rust API loads the bundled claims ledger and persists results in PostgreSQL. Result ingestion validates against both schema v1 and the corresponding claim. Verdict calculation is deterministic. The publish module constructs a separate allowlisted document; it does not serialize the full claim or result records.
 
-The first runner is intentionally single-process. A broker, distributed runner fleet, and dedicated time-series database are deferred until measurements justify them.
-
-Synthetic k6 results, real-user traffic, infrastructure telemetry, and future AI telemetry remain separate data categories. Reports must preserve target, workload, scenario version, time window, metric definitions, and limitations.
+The public site is a static React build. It reads `evidence/index.json` and the referenced claim documents. It has no API token and no write control. PostgreSQL and the operator API are for local use only.
