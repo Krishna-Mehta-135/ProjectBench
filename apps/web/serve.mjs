@@ -30,12 +30,15 @@ createServer((request, response) => {
   }
   const relative = pathname.replace(/^\/+/, "");
   const candidate = path.resolve(root, relative);
-  const file =
+  const fileExists =
     candidate.startsWith(`${root}${path.sep}`) &&
     existsSync(candidate) &&
-    statSync(candidate).isFile()
-      ? candidate
-      : path.join(root, "index.html");
+    statSync(candidate).isFile();
+  if (pathname.startsWith("/evidence/") && !fileExists) {
+    response.writeHead(404).end("Evidence not found");
+    return;
+  }
+  const file = fileExists ? candidate : path.join(root, "index.html");
   response.writeHead(200, {
     "content-type": mimeTypes[path.extname(file)] ?? "application/octet-stream",
     "cache-control": file.endsWith("index.html")
