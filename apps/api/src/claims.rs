@@ -106,6 +106,25 @@ mod tests {
     }
 
     #[test]
+    fn ai_claims_have_explicit_measurement_states() {
+        let claims = bundled_claims().expect("bundled ledger parses");
+        for id in [
+            "canvassync-ai-fallback-chain",
+            "knowdex-ai-token-stream-rate",
+            "canvassync-ai-token-usage",
+        ] {
+            let claim = claims
+                .iter()
+                .find(|claim| claim.id == id)
+                .expect("AI claim exists");
+            assert_eq!(
+                claim.status, "measuring",
+                "{id} must not imply verification"
+            );
+        }
+    }
+
+    #[test]
     fn duplicate_ids_are_rejected() {
         let claim = "- id: same\n  project: p\n  source: docs\n  source_ref: x\n  statement: x\n  kind: behavior\n  metric: m\n  metric_definition: x\n  direction: exact_match\n  baseline: x\n  candidate: x\n  workloads: [w]\n  repetitions: 1\n  status: unverified\n  verification: x\n";
         assert!(matches!(

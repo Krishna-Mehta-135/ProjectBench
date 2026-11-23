@@ -131,8 +131,43 @@
   candidate: "gemini-flash-latest then gemini-flash-lite-latest"
   workloads: [primary_model_success, primary_model_rate_limited]
   repetitions: 5
-  status: unverified
-  verification: "The README config lists two ordered model aliases and worker fallback handling; no local result exists."
+  status: measuring
+  verification: "The worker lists two ordered model aliases and has rate-limit fallback handling. A local fake-provider run must return 429 for the primary model, a valid answer for the second, and record added completion latency before this behavior can be verified. No accepted result exists."
+  behavior_expected_min: 1
+
+- id: knowdex-ai-token-stream-rate
+  project: knowdex
+  source: resume
+  source_ref: "../Career-Ops/cv.md:46"
+  statement: "Knowdex delivers AI output incrementally under concurrent requests."
+  kind: behavior
+  metric: concurrent_stream_completion_rate
+  metric_definition: "Fraction of concurrent fake-provider requests whose clients receive an initial nonempty chunk and a completed stream; the experiment also records client time to first token and delivered tokens per second as separate metrics."
+  direction: higher_is_better
+  baseline: "not applicable"
+  candidate: "Knowdex AI streaming path with a fixed-rate fake provider"
+  workloads: [concurrent_ai_streams]
+  repetitions: 5
+  status: measuring
+  verification: "The existing fake provider can emit timed SSE chunks. No accepted client-side concurrent stream result, first-token timing, or token-rate measurement exists. Fake output must be labeled synthetic and contain no prompt or completion text."
+  behavior_expected_min: 1
+
+- id: canvassync-ai-token-usage
+  project: canvassync
+  source: docs
+  source_ref: "docs/plan-v2-claims-first.md:403-415"
+  statement: "Record API-reported tokens per request for CanvasSync AI generation."
+  kind: behavior
+  metric: provider_token_usage_reported
+  metric_definition: "One when a real Gemini response provides a numeric API-reported token count for the request and zero otherwise; token counts are recorded per call without prompt or completion text."
+  direction: higher_is_better
+  baseline: "not applicable"
+  candidate: "about 20 approved real Gemini generation calls"
+  workloads: [real_gemini_token_accounting]
+  repetitions: 20
+  status: measuring
+  verification: "No real Gemini calls or API-reported usage counts were made for W6. The fake provider cannot establish real token usage."
+  behavior_expected_min: 1
 
 - id: canvassync-three-docker-images
   project: canvassync
