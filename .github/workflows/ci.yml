@@ -86,6 +86,7 @@ jobs:
           cd "$GITHUB_WORKSPACE/apps/web"
           npm test -- --run
       - run: node --test k6/scenarios/canvassync-read-gate.test.mjs
+      - run: node --test apps/demo/observe.test.mjs
 
   demo:
     runs-on: ubuntu-latest

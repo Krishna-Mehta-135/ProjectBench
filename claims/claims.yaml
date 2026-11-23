@@ -39,12 +39,12 @@
   project: canvassync
   source: resume
   source_ref: "../Career-Ops/cv.md:36"
-  statement: "Redis sync cut cold-start sync latency about 60% versus a DB-poll baseline."
+  statement: "Cold-join latency with Redis room snapshots versus direct PostgreSQL reads."
   kind: comparative
   metric: join_sync_latency_ms
   metric_definition: "Elapsed time from WebSocket open to the joining client parsing the full room_joined state, with no in-memory room state and a warm Redis snapshot."
   direction: lower_is_better
-  baseline: "current build with the pre-Redis-compatible join path enabled by an experiment flag"
+  baseline: "same current build using the historical direct PostgreSQL read-on-join path behind an experiment flag"
   candidate: "the same current build with the Redis-backed join path enabled by the same experiment flag"
   workloads: [cold-start-100-shapes, cold-start-1000-shapes, cold-start-5000-shapes]
   repetitions: 30
@@ -52,7 +52,7 @@
   tolerance_percent: 5
   reproduce_command: "make bench-w4-up && make bench-w4"
   status: measuring
-  verification: "At 76a5fe0^, a cold join performed one Postgres shape.findMany and returned room_joined; there was no polling loop. W4 draft PR #86 measured the direct-read baseline against a warm Redis snapshot in the same current build. Results await W5 ingest and verdict."
+  verification: "At 76a5fe0^, a cold join performed one Postgres shape.findMany and returned room_joined; there was no polling loop. W4 measured that direct-read baseline against a warm Redis snapshot in the same current build. W5 classified the 100-, 1,000-, and 5,000-shape workloads as inconclusive because their ranges did not separate the medians. No 60% latency reduction is supported. Raw result files must be restored and reviewed before publication."
 
 - id: canvassync-circuit-breaker
   project: canvassync
@@ -131,8 +131,43 @@
   candidate: "gemini-flash-latest then gemini-flash-lite-latest"
   workloads: [primary_model_success, primary_model_rate_limited]
   repetitions: 5
-  status: unverified
-  verification: "The README config lists two ordered model aliases and worker fallback handling; no local result exists."
+  status: measuring
+  verification: "The worker lists two ordered model aliases and has rate-limit fallback handling. A local fake-provider run must return 429 for the primary model, a valid answer for the second, and record added completion latency before this behavior can be verified. No accepted result exists."
+  behavior_expected_min: 1
+
+- id: knowdex-ai-token-stream-rate
+  project: knowdex
+  source: resume
+  source_ref: "../Career-Ops/cv.md:46"
+  statement: "Knowdex delivers AI output incrementally under concurrent requests."
+  kind: behavior
+  metric: concurrent_stream_completion_rate
+  metric_definition: "Fraction of concurrent fake-provider requests whose clients receive an initial nonempty chunk and a completed stream; the experiment also records client time to first token and delivered tokens per second as separate metrics."
+  direction: higher_is_better
+  baseline: "not applicable"
+  candidate: "Knowdex AI streaming path with a fixed-rate fake provider"
+  workloads: [concurrent_ai_streams]
+  repetitions: 5
+  status: measuring
+  verification: "The existing fake provider can emit timed SSE chunks. No accepted client-side concurrent stream result, first-token timing, or token-rate measurement exists. Fake output must be labeled synthetic and contain no prompt or completion text."
+  behavior_expected_min: 1
+
+- id: canvassync-ai-token-usage
+  project: canvassync
+  source: docs
+  source_ref: "docs/plan-v2-claims-first.md:403-415"
+  statement: "Record API-reported tokens per request for CanvasSync AI generation."
+  kind: behavior
+  metric: provider_token_usage_reported
+  metric_definition: "One when a real Gemini response provides a numeric API-reported token count for the request and zero otherwise; token counts are recorded per call without prompt or completion text."
+  direction: higher_is_better
+  baseline: "not applicable"
+  candidate: "about 20 approved real Gemini generation calls"
+  workloads: [real_gemini_token_accounting]
+  repetitions: 20
+  status: measuring
+  verification: "No real Gemini calls or API-reported usage counts were made for W6. The fake provider cannot establish real token usage."
+  behavior_expected_min: 1
 
 - id: canvassync-three-docker-images
   project: canvassync
@@ -186,7 +221,7 @@
   project: knowdex
   source: resume
   source_ref: "../Career-Ops/cv.md:45"
-  statement: "A 16 ms coalesce buffer cut outbound WebSocket volume about 90% under keystroke-burst load."
+  statement: "Effect of a 16 ms coalesce buffer on outbound update frames across specified workloads."
   kind: comparative
   metric: outbound_frames_per_receiver
   metric_definition: "Count of update frames delivered to each non-sending receiver during one fixed workload."
