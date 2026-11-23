@@ -1,70 +1,78 @@
 # ProjectBench
 
-ProjectBench connects an engineering claim to a controlled experiment, a fixed verdict, and the evidence behind it.
+**Turn an engineering claim into a reproducible experiment and a reviewable verdict.**
 
-**Built by [Krishna Mehta](https://github.com/Krishna-Mehta-135).**
+Performance numbers and behavior claims are easy to write and hard to defend. ProjectBench connects each claim to a defined workload, validates the resulting observations, applies fixed verdict rules, and prepares a small public evidence document for review. The experiment, the result, and the limits of the conclusion stay together.
 
-**Screenshot:** A browser-reviewed product screenshot is pending. The public build currently opens with an honest empty state until evidence is approved for publication.
+```text
+Claim → local workload → schema-v1 results → deterministic verdict → reviewed evidence
+```
 
-**Live site:** Not deployed yet. The operator API and PostgreSQL are local-only.
+The Rust API, PostgreSQL database, and run controls operate locally. The static evidence site reads only explicitly published JSON. **No evidence is published, and the public site is not deployed yet.**
 
-## Evidence status
+## Try the complete path
 
-- **CanvasSync cold joins:** The historical baseline was one direct PostgreSQL read on join. The local 100-, 1,000-, and 5,000-shape comparisons were inconclusive under ProjectBench's predeclared range rule. The original DB-poll and 60% claims are unsupported.
-- **Knowdex coalescing:** Five simultaneous typists produced 80% fewer outbound update frames per receiver (100 to 20) in a local benchmark. One typist and the AI stream had 0% median reduction; the paste run was invalid. The broad 90% claim is unsupported.
-- **AI claims:** Two-model fallback, concurrent streaming, and real API token usage remain measuring. No AI result is published.
-
-The accepted W3/W4 sample files are absent from this checkout. No `evidence/` index or claim JSON has been published. See the [publication checkpoint](docs/evidence-publication-checkpoint.md) for the proposed evidence set and review gates.
-
-## What ProjectBench is
-
-ProjectBench stores claims, accepts strict schema-v1 benchmark results, computes deterministic verdicts, and can publish allowlisted evidence JSON. Experiments run against local Docker services. Each result carries its workload, repetitions, environment, limits, commit, and limitations.
-
-ProjectBench is not production monitoring, an independent audit, a load generator for arbitrary targets, or an AI system that invents or revises measurements. The existing k6 run control plane is retained for local review; the week-one path is claims-first.
-
-## Quickstart
-
-Requirements: Docker Engine with Compose v2, Make, and Git. From a clean checkout:
+You need Docker Engine with Compose v2, Make, and Git. From a clean checkout:
 
 ```sh
 make demo
 ```
 
-The command starts an isolated ProjectBench demo stack, checks a bundled local HTTP endpoint five times, ingests each observed result, computes the verdict, and prints it. Browse the public evidence site at [http://127.0.0.1:4174](http://127.0.0.1:4174). It shows the empty state because the demo does not publish evidence. The local API is available at [http://127.0.0.1:18080](http://127.0.0.1:18080).
+The command builds an isolated stack, sends five real HTTP requests to a bundled health endpoint, ingests schema-v1 results, and prints a verdict and next step. It needs no credentials for CanvasSync, Knowdex, or Gemini and sends no traffic to their production services.
 
-The default token is local-only and the API port is loopback-bound. To customize ports or the token, copy `.env.example` to `.env` and edit it. Stop only this demo stack with:
+| Local endpoint | Purpose |
+| --- | --- |
+| [127.0.0.1:4174](http://127.0.0.1:4174) | Read-only evidence site; shows its empty state until evidence is published. |
+| [127.0.0.1:18080](http://127.0.0.1:18080) | Operator API, bound to loopback in the demo stack. |
 
-```sh
-make demo-down
-```
+Run `make demo-down` to stop this stack. The dedicated Compose project keeps its database volume. See the [quickstart](docs/quickstart.md) for configuration and reset instructions. The bundled health check demonstrates the ingest-to-verdict workflow; it is not an application performance benchmark.
 
-The demo uses its own Compose project (`projectbench-demo`) and keeps its database volume when stopped. Use `docker compose -p projectbench-demo down -v` only if you also want to remove the demo database.
+## What ProjectBench does
 
-## How it works
+| Stage | Output | Check |
+| --- | --- | --- |
+| Define | A claim with a metric, workload, baseline or expected behavior, repetitions, and source. | The claims ledger rejects invalid IDs and incomplete experiment definitions. |
+| Measure | One schema-v1 result per accepted observation. | Results carry variant, workload, commit, container images, environment, CPU usage, and limitations. |
+| Evaluate | A verdict per workload and a next step. | Rules compare medians and ranges, check environment equality and generator load, and never ask an AI model to choose a verdict. |
+| Publish | An evidence index and claim JSON for the static site. | An explicit operator action writes only allowlisted fields; unpublished rows and operator data stay out. |
+
+Comparative verdicts use the configured repetition count, median difference, min–max spread, matching environments, and a 70% generator CPU validity gate. If a range is wider than the median gap, the comparison is inconclusive. Behavior verdicts check the observed metric against a declared minimum. Outcomes include **verified**, **revised**, **conditional**, **not supported**, and **inconclusive**. The rules and their limitations are documented in the [methodology](docs/methodology.md).
+
+## Current claim status
+
+The measurements below are **local experiment findings, not published ProjectBench evidence**. Their accepted raw sample files are not in this checkout, so the evidence index and claim pages remain absent.
+
+| Claim | Local finding | Conclusion |
+| --- | --- | --- |
+| CanvasSync cold joins | Compared a direct PostgreSQL read on join with a warm Redis snapshot for rooms of 100, 1,000, and 5,000 shapes. | All three workloads are inconclusive under the predeclared range rule. The historical path did not poll the database; a general 60% reduction is unsupported. [Experiment and fairness review](https://github.com/Krishna-Mehta-135/Canvassync/pull/86) |
+| Knowdex coalescing | With five simultaneous typists, outbound update frames per receiver fell from 100 to 20 (80%). One typist and the AI stream had 0% median reduction; the paste run failed its CPU validity gate. | The 80% result applies only to the five-typist local workload. The broad 90% claim is unsupported. [Results and fairness review](https://github.com/Krishna-Mehta-135/Knowdex/pull/53) |
+| AI behavior and token usage | Fallback, concurrent streaming, and real API token accounting have no accepted W6 results. | These ledger entries remain **Measuring**. [W6 status](docs/w6-ai-claim-status.md) |
+
+The [publication checkpoint](docs/evidence-publication-checkpoint.md) records the proposed evidence set and the raw-result, privacy, visual-review, and owner-review gates. No result is reconstructed from a summary table.
+
+## Architecture
 
 ```mermaid
 flowchart LR
-  A[claims/claims.yaml] --> B[local benchmark harness]
-  B --> C[schema-v1 result]
-  C --> D[ProjectBench API and PostgreSQL]
-  D --> E[fixed verdict and next step]
-  D --> F[owner-confirmed publish]
-  F --> G[evidence JSON]
-  G --> H[static public site]
+  A[Claims ledger] --> B[Local app harness]
+  B --> C[Schema-v1 results]
+  C --> D[Rust API + PostgreSQL]
+  D --> E[Fixed verdict]
+  E --> F[Explicit publish review]
+  F --> G[Allowlisted JSON]
+  G --> H[Static read-only site]
 ```
+
+The local API validates and stores results, computes verdicts, and transforms approved data into a separate evidence shape. The static site has no write controls and does not need the API or database at runtime. The [code tour](docs/code-tour.md) follows the implementation through those boundaries.
+
+## Extend the system
+
+A new project provides a harness that writes schema-v1 results and an entry in `claims/claims.yaml`. Run the workload locally, ingest the accepted files, inspect the verdict, and review the generated evidence before publication. Start with [add a project](docs/add-a-project.md), [write a harness](docs/write-a-harness.md), and the [result schema](docs/result-schema.md).
 
 ## Documentation
 
-- [Quickstart](docs/quickstart.md)
-- [Concepts](docs/concepts.md)
-- [Add a project](docs/add-a-project.md)
-- [Write a harness](docs/write-a-harness.md)
-- [Result schema](docs/result-schema.md)
-- [Methodology](docs/methodology.md)
-- [Architecture](docs/architecture.md)
-- [Local deployment](docs/local-deployment.md)
-- [Safety](docs/safety.md)
-- [Evidence publication checkpoint](docs/evidence-publication-checkpoint.md)
-- [W6 AI claim status](docs/w6-ai-claim-status.md)
-- [Measured claim wording](docs/w10-proposed-wording.md)
-- [Week-one plan](docs/plan-v2-claims-first.md)
+- [Quickstart](docs/quickstart.md) · [Concepts](docs/concepts.md) · [Methodology](docs/methodology.md)
+- [Architecture](docs/architecture.md) · [Code tour](docs/code-tour.md) · [Local deployment](docs/local-deployment.md)
+- [Safety model](docs/safety.md) · [Evidence publication checkpoint](docs/evidence-publication-checkpoint.md)
+
+ProjectBench is released under the [MIT license](LICENSE).
