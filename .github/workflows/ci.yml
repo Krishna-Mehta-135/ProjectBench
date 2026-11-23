@@ -85,6 +85,7 @@ jobs:
       - run: |
           cd "$GITHUB_WORKSPACE/apps/web"
           npm test -- --run
+      - run: node --test apps/demo/observe.test.mjs
 
   demo:
     runs-on: ubuntu-latest

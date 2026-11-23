@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { cpuUsage, platform } from "node:process";
 import { performance } from "node:perf_hooks";
+import { collectHealthObservations } from "./observe.mjs";
 
 const apiBase = process.env.API_BASE_URL;
 const sampleUrl = process.env.SAMPLE_URL;
@@ -37,12 +38,6 @@ async function waitForApi() {
   throw new Error("ProjectBench API did not become ready within 30 seconds");
 }
 
-function cpuPercent(startUsage, startTime) {
-  const elapsedMicros = Math.max(1, (performance.now() - startTime) * 1000);
-  const used = cpuUsage(startUsage);
-  return Math.min(100, ((used.user + used.system) / elapsedMicros) * 100);
-}
-
 await waitForApi();
 const selfCheck = await fetch(sampleUrl, {
   signal: AbortSignal.timeout(3000),
@@ -53,43 +48,37 @@ if (selfCheck.status !== 200 || selfCheckBody.status !== "ok") {
 }
 
 const resultSetId = randomUUID();
-let generatorCpuPeakPercent = 0;
+const { results: observations, generatorCpuPercent } = await collectHealthObservations({
+  iterations,
+  request: () => fetch(sampleUrl, { signal: AbortSignal.timeout(3000) }),
+  sleep,
+  now: () => performance.now(),
+  cpuUsage,
+  timestamp: () => new Date().toISOString(),
+});
+process.stdout.write(`Generator CPU over demo window: ${generatorCpuPercent.toFixed(2)}%\n`);
 const results = [];
 
-for (let repetition = 1; repetition <= iterations; repetition += 1) {
-  const startTime = performance.now();
-  const startUsage = cpuUsage();
-  const timestamp = new Date().toISOString();
-  const response = await fetch(sampleUrl, {
-    signal: AbortSignal.timeout(3000),
-  });
-  const body = await response.json();
-  const durationSeconds = (performance.now() - startTime) / 1000;
-  await sleep(100);
-  generatorCpuPeakPercent = Math.max(
-    generatorCpuPeakPercent,
-    cpuPercent(startUsage, startTime),
-  );
-  const succeeded = response.status === 200 && body.status === "ok";
+for (const observation of observations) {
   const result = {
     schema_version: "1",
     claim_id: claimId,
     project,
     variant: "observed",
     workload,
-    repetition,
-    started_at: timestamp,
-    duration_seconds: durationSeconds,
+    repetition: observation.repetition,
+    started_at: observation.startedAt,
+    duration_seconds: observation.durationSeconds,
     metrics: [
       {
         name: "response_success",
         unit: "boolean (1=yes, 0=no)",
-        value: succeeded ? 1 : 0,
+        value: observation.succeeded ? 1 : 0,
       },
       {
         name: "response_status_code",
         unit: "HTTP status code",
-        value: response.status,
+        value: observation.status,
       },
     ],
     environment: {
@@ -98,17 +87,18 @@ for (let repetition = 1; repetition <= iterations; repetition += 1) {
       host_cpu: process.env.DEMO_HOST_CPU || platform,
       sut_cpuset: "0",
       sut_memory_mb: 256,
-      generator_cpu_peak_percent: generatorCpuPeakPercent,
+      generator_cpu_peak_percent: generatorCpuPercent,
       docker: `Docker Engine ${process.env.DEMO_DOCKER_VERSION || "version unavailable"}`,
       os: process.env.DEMO_OS || platform,
     },
     limitations: [
       "Bundled local behavior demo; this result does not measure production behavior or performance.",
+      "Generator CPU is sampled across the complete five-request demo window, not per request.",
     ],
   };
   results.push(result);
   process.stdout.write(
-    `Observed ${repetition}/${iterations}: HTTP ${response.status} in ${durationSeconds * 1000} ms\n`,
+    `Observed ${observation.repetition}/${iterations}: HTTP ${observation.status} in ${observation.durationSeconds * 1000} ms\n`,
   );
 }
 
