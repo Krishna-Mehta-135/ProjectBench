@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { collectHealthObservations } from "./observe.mjs";
 
@@ -21,4 +22,9 @@ test("demo measures generator CPU across the full behavior run", async () => {
   assert.ok(observations.results.every((result) => result.succeeded));
   assert.equal(observations.generatorCpuPercent, 20);
   assert.equal(usageCalls.length, 2, "CPU is sampled once for the complete run");
+});
+
+test("demo image includes the observation module used by the harness", () => {
+  const dockerfile = readFileSync(new URL("./Dockerfile", import.meta.url), "utf8");
+  assert.match(dockerfile, /COPY [^\n]*\bobserve\.mjs\b/);
 });
