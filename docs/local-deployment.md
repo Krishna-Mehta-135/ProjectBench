@@ -59,3 +59,5 @@ Run the API as a non-root container user in a production image, place PostgreSQL
 ## Canvassync approval gate
 
 Before any non-local run, confirm the exact HTTPS origin, dedicated test account, seeded room, VU count, duration, think time, hard runtime, and stop conditions. The first proposed workload remains one VU for 60 seconds with two seconds of think time. Do not store any of those secrets in Git.
+
+For `k6/scenarios/canvassync-room-read.js`, set `APPROVED_TARGET_ORIGIN` separately from `TARGET_ORIGIN` after reviewing the staging target. Both must resolve to the same HTTPS origin. The scenario rejects CanvasSync production domains, missing credentials, room IDs that could change the route, redirects, and failed or wrong-origin responses. This guard does not replace the operator review and run controls in issue #67.
