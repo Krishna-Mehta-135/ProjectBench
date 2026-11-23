@@ -10,3 +10,5 @@ The first baseline is intentionally conservative because Canvassync shares a sma
 - Signup, writes, AI calls, collaboration traffic, and redirecting to a different host are excluded.
 - A live run requires operator review of target, account/test data, workload, and stop conditions. This repository phase does not execute the Azure run.
 
+The CanvasSync read scenario requires `TARGET_ORIGIN` to match a separately supplied `APPROVED_TARGET_ORIGIN`. It rejects CanvasSync production domains and stops on a redirect, non-success response, or response URL outside the approved origin. A seeded room ID must be one route segment. These code checks supplement the staging review in [issue #67](https://github.com/Krishna-Mehta-135/ProjectBench/issues/67); they do not approve a target or workload by themselves.
+

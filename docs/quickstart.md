@@ -25,3 +25,7 @@ docker compose -p projectbench-demo --profile demo down -v
 ```
 
 The demo result is a behavior check for the bundled service. It does not measure production latency or prove application performance.
+
+The harness samples generator CPU across the complete five-request demo window, then records that one window as its peak sample. This avoids drawing a validity conclusion from a single roughly 100 ms request interval. The W3 and W4 app benchmarks use their own CPU sampling and validity rules.
+
+The demo does not publish its result. See the [evidence publication checkpoint](evidence-publication-checkpoint.md) before treating a result as public evidence.

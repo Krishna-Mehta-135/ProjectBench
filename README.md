@@ -2,11 +2,19 @@
 
 ProjectBench connects an engineering claim to a controlled experiment, a fixed verdict, and the evidence behind it.
 
-**Built by [Krishna Mehta](https://github.com/Krishna-Mehta-135).** The portfolio site is still in progress.
+**Built by [Krishna Mehta](https://github.com/Krishna-Mehta-135).**
 
 **Screenshot:** A browser-reviewed product screenshot is pending. The public build currently opens with an honest empty state until evidence is approved for publication.
 
 **Live site:** Not deployed yet. The operator API and PostgreSQL are local-only.
+
+## Evidence status
+
+- **CanvasSync cold joins:** The historical baseline was one direct PostgreSQL read on join. The local 100-, 1,000-, and 5,000-shape comparisons were inconclusive under ProjectBench's predeclared range rule. The original DB-poll and 60% claims are unsupported.
+- **Knowdex coalescing:** Five simultaneous typists produced 80% fewer outbound update frames per receiver (100 to 20) in a local benchmark. One typist and the AI stream had 0% median reduction; the paste run was invalid. The broad 90% claim is unsupported.
+- **AI claims:** Two-model fallback, concurrent streaming, and real API token usage remain measuring. No AI result is published.
+
+The accepted W3/W4 sample files are absent from this checkout. No `evidence/` index or claim JSON has been published. See the [publication checkpoint](docs/evidence-publication-checkpoint.md) for the proposed evidence set and review gates.
 
 ## What ProjectBench is
 
@@ -56,4 +64,7 @@ flowchart LR
 - [Architecture](docs/architecture.md)
 - [Local deployment](docs/local-deployment.md)
 - [Safety](docs/safety.md)
+- [Evidence publication checkpoint](docs/evidence-publication-checkpoint.md)
+- [W6 AI claim status](docs/w6-ai-claim-status.md)
+- [Measured claim wording](docs/w10-proposed-wording.md)
 - [Week-one plan](docs/plan-v2-claims-first.md)
