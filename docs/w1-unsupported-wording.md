@@ -1,5 +1,7 @@
 # W1 unsupported-wording report
 
+This is the W1 source audit before the W3/W4 measurements. For current measured findings, see [W10 proposed wording](w10-proposed-wording.md), [W6 AI status](w6-ai-claim-status.md), and the [evidence publication checkpoint](evidence-publication-checkpoint.md). The historical counts and “unmeasured” statements below describe W1 only.
+
 Status: evidence is not yet measured. No resume or application source was edited. The ledger contains 88 entries: 17 resume, 14 README, and 57 app-doc entries (54 CanvasSync-doc and 3 Knowdex-doc); 7 are verified from direct app source/workflow/configuration citations, 1 code-fact wording is revised, and 80 behavior/comparison/proprietary or documentation assertions remain unverified. No numeric comparison is marked verified. The original Knowdex resume wording claiming general little-endian uint16 framing is revised/incorrect; the precise source-supported wording is “Knowdex AI-update frames encode text length as a little-endian uint16.”
 
 ## Findings
