@@ -39,12 +39,12 @@
   project: canvassync
   source: resume
   source_ref: "../Career-Ops/cv.md:36"
-  statement: "Redis sync cut cold-start sync latency about 60% versus a DB-poll baseline."
+  statement: "Cold-join latency with Redis room snapshots versus direct PostgreSQL reads."
   kind: comparative
   metric: join_sync_latency_ms
   metric_definition: "Elapsed time from WebSocket open to the joining client parsing the full room_joined state, with no in-memory room state and a warm Redis snapshot."
   direction: lower_is_better
-  baseline: "current build with the pre-Redis-compatible join path enabled by an experiment flag"
+  baseline: "same current build using the historical direct PostgreSQL read-on-join path behind an experiment flag"
   candidate: "the same current build with the Redis-backed join path enabled by the same experiment flag"
   workloads: [cold-start-100-shapes, cold-start-1000-shapes, cold-start-5000-shapes]
   repetitions: 30
@@ -52,7 +52,7 @@
   tolerance_percent: 5
   reproduce_command: "make bench-w4-up && make bench-w4"
   status: measuring
-  verification: "At 76a5fe0^, a cold join performed one Postgres shape.findMany and returned room_joined; there was no polling loop. W4 draft PR #86 measured the direct-read baseline against a warm Redis snapshot in the same current build. Results await W5 ingest and verdict."
+  verification: "At 76a5fe0^, a cold join performed one Postgres shape.findMany and returned room_joined; there was no polling loop. W4 measured that direct-read baseline against a warm Redis snapshot in the same current build. W5 classified the 100-, 1,000-, and 5,000-shape workloads as inconclusive because their ranges did not separate the medians. No 60% latency reduction is supported. Raw result files must be restored and reviewed before publication."
 
 - id: canvassync-circuit-breaker
   project: canvassync
@@ -186,7 +186,7 @@
   project: knowdex
   source: resume
   source_ref: "../Career-Ops/cv.md:45"
-  statement: "A 16 ms coalesce buffer cut outbound WebSocket volume about 90% under keystroke-burst load."
+  statement: "Effect of a 16 ms coalesce buffer on outbound update frames across specified workloads."
   kind: comparative
   metric: outbound_frames_per_receiver
   metric_definition: "Count of update frames delivered to each non-sending receiver during one fixed workload."
